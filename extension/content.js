@@ -275,24 +275,83 @@
     true
   );
 
-  // ---- Belt-and-suspenders: watch for new user messages in the transcript ----
-  // No matter HOW the prompt was sent (voice, keyboard shortcut, paste + auto-
-  // send, programmatic), ChatGPT always renders the user's message as a div
-  // with data-message-author-role="user". Observing new ones appearing gives
-  // us a reliable fallback that never misses. The 3s dedup prevents double
-  // capture with the Enter / button paths.
+  // ---- Belt-and-suspenders: watch the transcript for new user + assistant
+  // messages. User messages are a capture fallback. Assistant messages ARE
+  // ChatGPT's live answer — we ship them to the panel as the ORIGINAL row.
   const seenUserMsgs = new WeakSet();
-  const msgObs = new MutationObserver(() => {
-    const msgs = document.querySelectorAll('[data-message-author-role="user"]');
-    if (msgs.length === 0) return;
-    const newest = msgs[msgs.length - 1];
-    if (seenUserMsgs.has(newest)) return;
-    seenUserMsgs.add(newest);
-    const text = (newest.innerText || "").trim();
-    if (!text) return;
-    send(text, "transcript observer");
+  const seenAsstMsgs = new WeakSet();
+  const asstCaptureTimers = new WeakMap();
+  let lastAsstSent = { text: "", at: 0 };
+
+  function sendAssistant(el) {
+    const text = (el.innerText || "").trim();
+    if (!text || text.length < 20) return; // ignore placeholders / blanks
+    const now = Date.now();
+    // Dedup: if same text was sent in the last 3s, skip
+    if (text === lastAsstSent.text && now - lastAsstSent.at < 3000) return;
+    lastAsstSent = { text, at: now };
+    if (!echoEnabled) {
+      LOG("assistant response ready but Echo is OFF — not sending");
+      return;
+    }
+    LOG(`assistant response captured (${text.length} chars):`, text.slice(0, 80));
+    try {
+      chrome.runtime.sendMessage({
+        type: "ECHO_ASSISTANT_RESPONSE",
+        response: text,
+      });
+    } catch (e) {
+      LOG("sendAssistant failed:", e.message);
+    }
+  }
+
+  function scheduleAsstCapture(el) {
+    // Debounce: fire sendAssistant 1500ms after the LAST mutation to this
+    // message's subtree. While the stream keeps adding tokens, the timer
+    // resets. When streaming stops (no more mutations for 1.5s), fire.
+    clearTimeout(asstCaptureTimers.get(el));
+    const t = setTimeout(() => sendAssistant(el), 1500);
+    asstCaptureTimers.set(el, t);
+  }
+
+  const transcriptObs = new MutationObserver((mutations) => {
+    // 1) User messages — capture fallback for the prompt.
+    const userMsgs = document.querySelectorAll('[data-message-author-role="user"]');
+    if (userMsgs.length > 0) {
+      const newest = userMsgs[userMsgs.length - 1];
+      if (!seenUserMsgs.has(newest)) {
+        seenUserMsgs.add(newest);
+        const text = (newest.innerText || "").trim();
+        if (text) send(text, "transcript observer");
+      }
+    }
+
+    // 2) Assistant messages — watch the latest one and debounce capture.
+    const asstMsgs = document.querySelectorAll(
+      '[data-message-author-role="assistant"]'
+    );
+    if (asstMsgs.length > 0) {
+      const latest = asstMsgs[asstMsgs.length - 1];
+      if (!seenAsstMsgs.has(latest)) {
+        seenAsstMsgs.add(latest);
+        LOG("new assistant message detected, watching for completion");
+      }
+      // Re-schedule on every mutation that might be inside this message.
+      for (const m of mutations) {
+        if (
+          latest.contains(m.target) ||
+          latest === m.target ||
+          (m.target instanceof Element && latest.contains(m.target))
+        ) {
+          scheduleAsstCapture(latest);
+          break;
+        }
+      }
+      // If we haven't scheduled yet (first appearance), schedule.
+      if (!asstCaptureTimers.has(latest)) scheduleAsstCapture(latest);
+    }
   });
-  msgObs.observe(document.documentElement, {
+  transcriptObs.observe(document.documentElement, {
     childList: true,
     subtree: true,
     characterData: true,

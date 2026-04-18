@@ -29,7 +29,7 @@
 
   // ---------- state ----------
   // entries: [{ label, prompt, response, error, stance, status, expected_inconsistency }]
-  // label = "ORIGINAL" | "PARAPHRASE" | "ROLE_SHIFT" | "SPECIFICITY_SHIFT"
+  // label = "CHATGPT" (for index 0, the live response) | "PARAPHRASE" | "ROLE_SHIFT" | "SPECIFICITY_SHIFT"
   // status = "pending" | "loading" | "done" | "error"
   const state = {
     currentPrompt: "",
@@ -37,6 +37,15 @@
     expandedIndex: -1,
     analysis: null,
   };
+
+  // Resolver for the ORIGINAL card — resolves when the content script
+  // relays ChatGPT's stabilized response (ECHO_ASSISTANT_FOR_PANEL).
+  let pendingAssistant = null;
+  function waitForAssistant() {
+    return new Promise((resolve) => {
+      pendingAssistant = resolve;
+    });
+  }
 
   // ---------- helpers ----------
   function scoreClass(s) {
@@ -364,17 +373,24 @@
     cardsEl.hidden = false;
     promptBox.textContent = prompt;
 
-    // Seed the ORIGINAL card now (status: loading).
+    // Seed the ORIGINAL card. This one waits for the LIVE response from
+    // ChatGPT itself — captured from the DOM by the content script — rather
+    // than calling /api/stream-one. Status stays "loading" until the
+    // content script relays the stabilized assistant text.
     state.entries.push({
-      label: "ORIGINAL",
+      label: "CHATGPT",
       prompt,
       response: "",
       error: "",
       stance: null,
       status: "loading",
+      isLive: true, // marker — do not call stream-one
     });
     state.expandedIndex = 0;
     renderCards();
+
+    // Prepare the promise that /api/analyze will await.
+    const assistantPromise = waitForAssistant();
 
     setStatus("generating variants…", "is-working");
 
@@ -407,12 +423,23 @@
     }
     renderCards();
 
-    setStatus("streaming 4 in parallel…", "is-working");
+    setStatus("streaming variants + waiting for ChatGPT…", "is-working");
 
-    // Step 2: stream all 4 gpt-4o calls in parallel via /api/stream-one.
-    // Each token delta updates its card surgically; on done, a full
-    // renderCards() swaps in the "See more" toggle.
-    const runPromises = state.entries.map((entry, i) => runStreamed(entry, i));
+    // Step 2: stream the 3 adversarial variants (entries 1,2,3) against
+    // gpt-4o via /api/stream-one. Entry 0 (CHATGPT / isLive) is NOT streamed
+    // here — it gets filled by the content script's assistant observer.
+    const runPromises = state.entries.map((entry, i) => {
+      if (entry.isLive) {
+        // Wait for the content script to capture ChatGPT's actual response.
+        return assistantPromise.then((responseText) => {
+          entry.response = responseText;
+          entry.status = "done";
+          LOG(`CHATGPT live response arrived (${responseText.length} chars)`);
+          renderCards();
+        });
+      }
+      return runStreamed(entry, i);
+    });
     await Promise.all(runPromises);
 
     // Step 3: analyze (only if all 4 produced something).
@@ -468,6 +495,21 @@
     if (msg.type === "ECHO_PROMPT_FOR_PANEL" && typeof msg.prompt === "string") {
       LOG("received prompt from bg:", msg.prompt.slice(0, 80));
       handleCaptured(msg.prompt);
+    }
+    if (msg.type === "ECHO_ASSISTANT_FOR_PANEL" && typeof msg.response === "string") {
+      LOG("received assistant response from bg:", msg.response.slice(0, 80));
+      // Fill the CHATGPT (isLive) entry if we have one waiting.
+      const entry = state.entries.find((e) => e.isLive);
+      if (entry) {
+        entry.response = msg.response;
+        // If we already resolved the promise earlier, keep the text anyway.
+        if (pendingAssistant) {
+          pendingAssistant(msg.response);
+          pendingAssistant = null;
+        }
+      } else {
+        LOG("no isLive entry to fill (no active prompt) — ignoring");
+      }
     }
   });
 

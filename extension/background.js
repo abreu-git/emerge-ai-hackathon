@@ -57,6 +57,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the channel open for async response
   }
 
+  if (msg.type === "ECHO_ASSISTANT_RESPONSE") {
+    const response = String(msg.response || "");
+    LOG(`assistant response relayed (${response.length} chars)`);
+    chrome.runtime.sendMessage(
+      { type: "ECHO_ASSISTANT_FOR_PANEL", response, capturedAt: Date.now() },
+      () => {
+        const err = chrome.runtime.lastError;
+        if (err) LOG("panel not listening (harmless):", err.message);
+      }
+    );
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.type === "ECHO_OPEN_PANEL_WITH_PROMPT") {
     const prompt = String(msg.prompt || "");
     const tabId = sender.tab?.id;
