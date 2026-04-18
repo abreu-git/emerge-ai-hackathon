@@ -79,11 +79,14 @@
     cardsEl.innerHTML = "";
     state.entries.forEach((entry, i) => {
       const isExpanded = state.expandedIndex === i;
+      const isStreaming = entry.status === "loading" && entry.response;
 
       const card = document.createElement("div");
-      card.className = `echo-card ${isExpanded ? "is-expanded" : "is-collapsed"} ${
-        entry.status === "loading" ? "is-loading" : ""
-      }`;
+      const classes = ["echo-card"];
+      classes.push(isExpanded ? "is-expanded" : "is-collapsed");
+      if (entry.status === "loading" && !entry.response) classes.push("is-loading");
+      if (isStreaming) classes.push("is-streaming");
+      card.className = classes.join(" ");
       card.dataset.index = String(i);
 
       // Header: type + stance chip
@@ -111,13 +114,21 @@
         card.appendChild(q);
       }
 
-      // Body (review text)
+      // Body bubble (review text)
       const bodyDiv = document.createElement("div");
       bodyDiv.className = "echo-card-body";
       const review = document.createElement("div");
       review.className = "echo-card-review";
-      review.textContent = reviewText(entry);
-      bodyDiv.appendChild(review);
+      // Loading state: no text, just 3 bouncing dots
+      if (entry.status === "loading" && !entry.response) {
+        const dots = document.createElement("div");
+        dots.className = "echo-streaming-dots";
+        dots.innerHTML = "<span></span><span></span><span></span>";
+        bodyDiv.appendChild(dots);
+      } else {
+        review.textContent = reviewText(entry);
+        bodyDiv.appendChild(review);
+      }
       card.appendChild(bodyDiv);
 
       // Toggle — only show if we have real content
@@ -258,6 +269,90 @@
     return r.json();
   }
 
+  function updateCardReviewInPlace(i) {
+    const card = cardsEl.querySelector(`[data-index="${i}"]`);
+    if (!card) return;
+    const body = card.querySelector(".echo-card-body");
+    if (!body) return;
+    const entry = state.entries[i];
+
+    // First delta arriving on a loading card: swap bouncing dots for review
+    // text element, then begin streaming updates into it.
+    let review = body.querySelector(".echo-card-review");
+    if (!review) {
+      body.innerHTML = "";
+      review = document.createElement("div");
+      review.className = "echo-card-review";
+      body.appendChild(review);
+    }
+    review.textContent = entry.response || "…";
+
+    // Flip state classes so streaming cursor is shown via CSS.
+    if (entry.status === "loading" && entry.response) {
+      card.classList.add("is-streaming");
+      card.classList.remove("is-loading");
+    }
+  }
+
+  async function runStreamed(entry, index) {
+    try {
+      const r = await fetch(`${API_BASE}/api/stream-one`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: entry.prompt }),
+      });
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        throw new Error(`${r.status} ${text.slice(0, 200)}`);
+      }
+
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          let msg;
+          try {
+            msg = JSON.parse(line);
+          } catch (e) {
+            LOG("bad NDJSON line:", line);
+            continue;
+          }
+          if (msg.type === "delta") {
+            entry.response += msg.text;
+            updateCardReviewInPlace(index);
+          } else if (msg.type === "done") {
+            entry.status = "done";
+            entry.response = msg.text || entry.response;
+            renderCards(); // full re-render so "See more" toggle shows
+          } else if (msg.type === "error") {
+            throw new Error(msg.error || "stream error");
+          }
+        }
+      }
+      // If the server closed the stream without a "done" frame (edge case),
+      // still mark the entry done if we have content.
+      if (entry.status !== "done") {
+        entry.status = entry.response ? "done" : "error";
+        if (!entry.response) entry.error = "empty stream";
+        renderCards();
+      }
+    } catch (err) {
+      entry.status = "error";
+      entry.error = String(err.message ?? err);
+      LOG(`${entry.label} stream failed:`, entry.error);
+      renderCards();
+    }
+  }
+
   async function orchestrate(prompt) {
     LOG("orchestrate:", prompt.slice(0, 80));
     state.currentPrompt = prompt;
@@ -311,25 +406,12 @@
     }
     renderCards();
 
-    setStatus("running 4 in parallel…", "is-working");
+    setStatus("streaming 4 in parallel…", "is-working");
 
-    // Step 2: fire all 4 /api/run-one calls in parallel. Each resolves
-    // independently and updates its card.
-    const runPromises = state.entries.map((entry, i) =>
-      postJSON("/api/run-one", { prompt: entry.prompt })
-        .then((r) => {
-          entry.response = r.response || "";
-          entry.status = "done";
-          LOG(`${entry.label} done (${entry.response.length} chars)`);
-          renderCards();
-        })
-        .catch((err) => {
-          entry.status = "error";
-          entry.error = String(err.message ?? err);
-          LOG(`${entry.label} failed:`, entry.error);
-          renderCards();
-        })
-    );
+    // Step 2: stream all 4 gpt-4o calls in parallel via /api/stream-one.
+    // Each token delta updates its card surgically; on done, a full
+    // renderCards() swaps in the "See more" toggle.
+    const runPromises = state.entries.map((entry, i) => runStreamed(entry, i));
     await Promise.all(runPromises);
 
     // Step 3: analyze (only if all 4 produced something).

@@ -299,7 +299,7 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "echo-dev", endpoints: ["/api/variants", "/api/run-variants", "/api/orchestrate"] }));
+      res.end(JSON.stringify({ ok: true, service: "echo-dev", endpoints: ["/api/variants", "/api/run-one", "/api/stream-one", "/api/run-variants", "/api/analyze", "/api/orchestrate"] }));
       return;
     }
 
@@ -313,6 +313,48 @@ const server = createServer(async (req, res) => {
       const result = await generateVariants(prompt);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/stream-one") {
+      const body = await readBody(req);
+      const prompt = (body.prompt ?? "").trim();
+      if (!prompt) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "prompt required" }));
+        return;
+      }
+
+      res.writeHead(200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      });
+
+      try {
+        const stream = await openai.chat.completions.create({
+          model: "gpt-4o",
+          max_tokens: 800,
+          stream: true,
+          messages: [{ role: "user", content: prompt }],
+        });
+
+        let full = "";
+        for await (const chunk of stream) {
+          const delta = chunk.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            full += delta;
+            res.write(JSON.stringify({ type: "delta", text: delta }) + "\n");
+          }
+        }
+        res.write(JSON.stringify({ type: "done", text: full }) + "\n");
+        res.end();
+      } catch (err) {
+        const msg = String(err?.message ?? err);
+        console.error("[stream-one] error:", msg);
+        res.write(JSON.stringify({ type: "error", error: msg }) + "\n");
+        res.end();
+      }
       return;
     }
 

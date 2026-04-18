@@ -54,12 +54,26 @@
 
   let currentComposer = null;
   let lastSent = { prompt: "", at: 0 };
+  let echoEnabled = true;
+
+  // Load persisted on/off state.
+  try {
+    chrome.storage.local.get(["echo.enabled"], (res) => {
+      if (typeof res["echo.enabled"] === "boolean") {
+        echoEnabled = res["echo.enabled"];
+        LOG("echoEnabled loaded:", echoEnabled);
+        updateEchoButtonVisual();
+      }
+    });
+  } catch (_e) {}
 
   function send(prompt, via) {
+    if (!echoEnabled) {
+      LOG(`capture skipped (Echo OFF) via ${via}`);
+      return;
+    }
     const now = Date.now();
-    // Deduplicate: ignore if we just sent the same prompt within the last 2s
-    // (catches Enter + send-button double fires).
-    if (prompt === lastSent.prompt && now - lastSent.at < 2000) {
+    if (prompt === lastSent.prompt && now - lastSent.at < 3000) {
       LOG(`dedup: already sent "${prompt.slice(0, 40)}..." ${now - lastSent.at}ms ago`);
       return;
     }
@@ -83,6 +97,41 @@
 
   // ---- Echo button injection into ChatGPT's composer action row ----
   const ECHO_BTN_ID = "echo-composer-btn";
+  const ECHO_STYLE_ID = "echo-composer-btn-style";
+
+  function ensureEchoButtonStyles() {
+    if (document.getElementById(ECHO_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = ECHO_STYLE_ID;
+    style.textContent = `
+      #${ECHO_BTN_ID} { position: relative; }
+      #${ECHO_BTN_ID}.is-on::before,
+      #${ECHO_BTN_ID}.is-on::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 26px;
+        height: 26px;
+        margin-left: -13px;
+        margin-top: -13px;
+        border-radius: 50%;
+        border: 1.5px solid #A855F7;
+        pointer-events: none;
+        opacity: 0;
+        animation: echo-composer-pulse 1.8s ease-out infinite;
+      }
+      #${ECHO_BTN_ID}.is-on::after {
+        animation-delay: 0.9s;
+      }
+      @keyframes echo-composer-pulse {
+        0%   { transform: scale(0.7); opacity: 0.7; }
+        80%  { opacity: 0; }
+        100% { transform: scale(2.1); opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   function injectEchoButton() {
     if (document.getElementById(ECHO_BTN_ID)) return; // already injected
@@ -108,36 +157,49 @@
     btn.title = "Analyze with Echo — run 3 adversarial variants in parallel";
     btn.innerHTML = `
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <circle cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
-        <circle cx="10" cy="10" r="4" fill="#A855F7"/>
+        <circle class="echo-btn-ring" cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
+        <circle class="echo-btn-dot" cx="10" cy="10" r="4" fill="#A855F7"/>
       </svg>
     `;
     btn.addEventListener("click", onEchoButtonClick);
 
     // Insert at start of row so it sits left of dictation + voice.
+    ensureEchoButtonStyles();
     row.insertBefore(btn, row.firstChild);
     LOG("injected Echo button into composer");
+    updateEchoButtonVisual();
+  }
+
+  function updateEchoButtonVisual() {
+    const btn = document.getElementById(ECHO_BTN_ID);
+    if (!btn) return;
+    const ring = btn.querySelector(".echo-btn-ring");
+    const dot = btn.querySelector(".echo-btn-dot");
+    if (echoEnabled) {
+      btn.classList.add("is-on");
+      if (ring) { ring.setAttribute("stroke", "#A855F7"); ring.setAttribute("stroke-opacity", "0.45"); }
+      if (dot) dot.setAttribute("fill", "#A855F7");
+      btn.setAttribute("aria-pressed", "true");
+      btn.title = "Echo is ON — click to pause capture";
+    } else {
+      btn.classList.remove("is-on");
+      if (ring) { ring.setAttribute("stroke", "#6B6B6B"); ring.setAttribute("stroke-opacity", "0.3"); }
+      if (dot) dot.setAttribute("fill", "#2A2A2A");
+      btn.setAttribute("aria-pressed", "false");
+      btn.title = "Echo is OFF — click to resume capture";
+    }
   }
 
   function onEchoButtonClick(e) {
     e.preventDefault();
     e.stopPropagation();
-    const composer = findComposer();
-    const prompt = captureFromElement(composer);
-    if (!prompt) {
-      LOG("Echo button clicked but composer is empty");
-      return;
-    }
-    LOG(`Echo button clicked, capturing: "${prompt.slice(0, 60)}..."`);
-    // Ask background to open the side panel (requires user-gesture routing).
+    // Toggle on/off.
+    echoEnabled = !echoEnabled;
     try {
-      chrome.runtime.sendMessage({
-        type: "ECHO_OPEN_PANEL_WITH_PROMPT",
-        prompt,
-      });
-    } catch (err) {
-      LOG("could not message background:", err.message);
-    }
+      chrome.storage.local.set({ "echo.enabled": echoEnabled });
+    } catch (_e) {}
+    LOG("Echo toggled to:", echoEnabled ? "ON" : "OFF");
+    updateEchoButtonVisual();
   }
 
   // MutationObserver — ChatGPT is an SPA; the composer and its action row
@@ -190,7 +252,6 @@
         '#composer-submit-button, button[data-testid="send-button"], button[aria-label*="Send" i]'
       );
       if (!btn) return;
-      // Read the composer text BEFORE ChatGPT clears it.
       const composer = findComposer();
       const prompt = captureFromElement(composer);
       if (!prompt) return;
@@ -198,6 +259,29 @@
     },
     true
   );
+
+  // ---- Belt-and-suspenders: watch for new user messages in the transcript ----
+  // No matter HOW the prompt was sent (voice, keyboard shortcut, paste + auto-
+  // send, programmatic), ChatGPT always renders the user's message as a div
+  // with data-message-author-role="user". Observing new ones appearing gives
+  // us a reliable fallback that never misses. The 3s dedup prevents double
+  // capture with the Enter / button paths.
+  const seenUserMsgs = new WeakSet();
+  const msgObs = new MutationObserver(() => {
+    const msgs = document.querySelectorAll('[data-message-author-role="user"]');
+    if (msgs.length === 0) return;
+    const newest = msgs[msgs.length - 1];
+    if (seenUserMsgs.has(newest)) return;
+    seenUserMsgs.add(newest);
+    const text = (newest.innerText || "").trim();
+    if (!text) return;
+    send(text, "transcript observer");
+  });
+  msgObs.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
 
   LOG("content script ready on", location.hostname);
 })();
