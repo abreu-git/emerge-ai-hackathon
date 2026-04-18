@@ -11,6 +11,7 @@
   </head>
   <body>
     <div class="echo-app">
+      <img id="echo-site-badge" class="echo-site-badge" alt="" hidden />
       <!-- Captured prompt (top, always visible once there's a prompt) -->
       <section class="echo-prompt-card" id="echo-prompt-card" hidden>
         <div class="echo-prompt-label">Captured prompt</div>
@@ -19,16 +20,18 @@
 
       <!-- Empty state (hero) -->
       <section class="echo-empty" id="echo-empty">
-        <div class="echo-empty-mark" aria-hidden="true"></div>
-        <h1 class="echo-empty-title">Type a prompt in ChatGPT</h1>
-        <p class="echo-empty-text">
-          Echo captures ChatGPT's live response and runs 3 adversarial
-          variants against GPT-4o to detect sycophancy and score consistency.
+        <h1 class="echo-empty-title" id="echo-empty-title">Your AI is nicer than it should be.</h1>
+        <p class="echo-empty-text" id="echo-empty-text">
+          Echo asks ChatGPT the same question three different ways.
+          If the answer drifts, you'll see it.
         </p>
       </section>
 
-      <!-- Response cards scroll area -->
-      <main class="echo-cards" id="echo-cards" hidden></main>
+      <!-- Carousel: dots above + horizontal scroll-snap track -->
+      <div class="echo-carousel" id="echo-carousel" hidden>
+        <div class="echo-dots" id="echo-dots" role="tablist" aria-label="Responses"></div>
+        <main class="echo-cards" id="echo-cards"></main>
+      </div>
 
       <!-- Consistency footer bar (clickable → opens report drawer) -->
       <button
@@ -95,7 +98,6 @@
       <!-- Status line (bottom) -->
       <div class="echo-status-line">
         <span id="echo-status" class="echo-status">ready</span>
-        <span class="echo-powered">claude + gpt-4o</span>
       </div>
     </div>
 

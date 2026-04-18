@@ -10,11 +10,69 @@
   const LOG = (...args) => console.log("[Echo/panel]", ...args);
   LOG("loading, API_BASE =", API_BASE);
 
+  // ---------- site detection (favicon + target model) ----------
+  // chatgpt → variants run against OpenAI gpt-4o
+  // claude  → variants run against Anthropic claude-opus-4-7
+  // Use Google's s2 favicon service — claude.ai sets Cross-Origin-Resource-Policy
+  // same-origin on its own favicon, so direct loads are blocked in the extension.
+  const SITE_CONFIG = {
+    "chatgpt.com":     { favicon: "https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64", target: "openai",    label: "CHATGPT", product: "ChatGPT", model: "GPT-5" },
+    "chat.openai.com": { favicon: "https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64", target: "openai",    label: "CHATGPT", product: "ChatGPT", model: "GPT-5" },
+    "claude.com":      { favicon: "https://www.google.com/s2/favicons?domain=claude.ai&sz=64",   target: "anthropic", label: "CLAUDE",  product: "Claude",  model: "Claude Opus 4.7" },
+    "claude.ai":       { favicon: "https://www.google.com/s2/favicons?domain=claude.ai&sz=64",   target: "anthropic", label: "CLAUDE",  product: "Claude",  model: "Claude Opus 4.7" },
+    "gemini.google.com": { favicon: "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=64", target: "google", label: "GEMINI", product: "Gemini", model: "Gemini 2.5 Pro" },
+  };
+  const site = { target: "openai", label: "CHATGPT", product: "ChatGPT", model: "GPT-5" };
+
+  function updateEmptyCopy() {
+    const title = document.getElementById("echo-empty-title");
+    const text = document.getElementById("echo-empty-text");
+    if (title) title.textContent = "Your AI is nicer than it should be.";
+    if (text) text.textContent = `Echo asks ${site.product} the same question three different ways. If the answer drifts, you'll see it.`;
+  }
+
+  function updateSiteBadge() {
+    const badge = document.getElementById("echo-site-badge");
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const url = tabs && tabs[0] && tabs[0].url;
+        let host = "";
+        try { host = url ? new URL(url).hostname : ""; } catch {}
+        const cfg = SITE_CONFIG[host];
+        if (cfg) {
+          site.target = cfg.target;
+          site.label = cfg.label;
+          site.product = cfg.product;
+          site.model = cfg.model;
+          updateEmptyCopy();
+          if (badge) {
+            badge.onerror = () => { badge.hidden = true; };
+            badge.onload = () => { badge.hidden = false; };
+            badge.hidden = true; // stay hidden until it actually loads
+            badge.alt = host;
+            badge.src = cfg.favicon;
+          }
+        } else if (badge) {
+          badge.hidden = true;
+        }
+      });
+    } catch (_e) {
+      if (badge) badge.hidden = true;
+    }
+  }
+  updateSiteBadge();
+  chrome.tabs && chrome.tabs.onActivated && chrome.tabs.onActivated.addListener(updateSiteBadge);
+  chrome.tabs && chrome.tabs.onUpdated && chrome.tabs.onUpdated.addListener((_id, info) => {
+    if (info.url || info.status === "complete") updateSiteBadge();
+  });
+
   // ---------- DOM refs ----------
   const empty = document.getElementById("echo-empty");
   const promptCard = document.getElementById("echo-prompt-card");
   const promptBox = document.getElementById("echo-prompt-box");
   const cardsEl = document.getElementById("echo-cards");
+  const carouselEl = document.getElementById("echo-carousel");
+  const dotsEl = document.getElementById("echo-dots");
   const footerBar = document.getElementById("echo-footer-bar");
   const footerScore = document.getElementById("echo-footer-score");
   const footerFill = document.getElementById("echo-footer-bar-fill");
@@ -35,7 +93,7 @@
   const state = {
     currentPrompt: "",
     entries: [],
-    expandedIndex: -1,
+    activeIndex: 0,
     analysis: null,
   };
 
@@ -64,9 +122,10 @@
 
   function clearAll() {
     state.entries = [];
-    state.expandedIndex = -1;
+    state.activeIndex = 0;
     state.analysis = null;
     cardsEl.innerHTML = "";
+    dotsEl.innerHTML = "";
     footerBar.hidden = true;
     footerScore.textContent = "—";
     footerScore.classList.remove("is-high", "is-mid", "is-low");
@@ -96,20 +155,58 @@
   // ---------- accordion rendering ----------
   function reviewText(entry) {
     if (entry.status === "pending") return "Waiting…";
-    if (entry.status === "loading") return "Running against GPT-4o…";
+    if (entry.status === "loading") return `Running against ${site.model}…`;
     if (entry.status === "error") return `⚠ ${entry.error || "error"}`;
     return entry.response || "(empty)";
   }
 
+  function renderDots() {
+    dotsEl.innerHTML = "";
+    state.entries.forEach((_, i) => {
+      const d = document.createElement("button");
+      d.type = "button";
+      d.className = "echo-dot" + (i === state.activeIndex ? " is-active" : "");
+      d.setAttribute("role", "tab");
+      d.setAttribute("aria-label", `Response ${i + 1}`);
+      d.addEventListener("click", () => scrollToIndex(i));
+      dotsEl.appendChild(d);
+    });
+  }
+
+  function scrollToIndex(i) {
+    const card = cardsEl.querySelector(`[data-index="${i}"]`);
+    if (!card) return;
+    state.activeIndex = i;
+    card.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    renderDots();
+  }
+
+  function updateActiveFromScroll() {
+    const cards = Array.from(cardsEl.querySelectorAll(".echo-card"));
+    if (!cards.length) return;
+    const mid = cardsEl.scrollLeft + cardsEl.clientWidth / 2;
+    let best = 0, bestDist = Infinity;
+    cards.forEach((c, i) => {
+      const center = c.offsetLeft + c.offsetWidth / 2;
+      const d = Math.abs(center - mid);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    if (best !== state.activeIndex) {
+      state.activeIndex = best;
+      renderDots();
+    }
+  }
+  cardsEl.addEventListener("scroll", () => {
+    window.requestAnimationFrame(updateActiveFromScroll);
+  });
+
   function renderCards() {
     cardsEl.innerHTML = "";
     state.entries.forEach((entry, i) => {
-      const isExpanded = state.expandedIndex === i;
       const isStreaming = entry.status === "loading" && entry.response;
 
       const card = document.createElement("div");
       const classes = ["echo-card"];
-      classes.push(isExpanded ? "is-expanded" : "is-collapsed");
       if (entry.status === "loading" && !entry.response) classes.push("is-loading");
       if (isStreaming) classes.push("is-streaming");
       card.className = classes.join(" ");
@@ -157,21 +254,9 @@
       }
       card.appendChild(bodyDiv);
 
-      // Toggle — only show if we have real content
-      if (entry.status === "done" && entry.response) {
-        const toggle = document.createElement("button");
-        toggle.className = "echo-card-toggle";
-        toggle.type = "button";
-        toggle.textContent = isExpanded ? "Show less" : "Read more";
-        toggle.addEventListener("click", () => {
-          state.expandedIndex = isExpanded ? -1 : i;
-          renderCards();
-        });
-        card.appendChild(toggle);
-      }
-
       cardsEl.appendChild(card);
     });
+    renderDots();
   }
 
   // ---------- footer bar ----------
@@ -360,7 +445,7 @@
       const r = await fetch(`${API_BASE}/api/stream-one`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: entry.prompt }),
+        body: JSON.stringify({ prompt: entry.prompt, target: site.target }),
       });
       if (!r.ok) {
         const text = await r.text().catch(() => "");
@@ -422,7 +507,7 @@
     // Show captured prompt immediately.
     empty.hidden = true;
     promptCard.hidden = false;
-    cardsEl.hidden = false;
+    carouselEl.hidden = false;
     promptBox.textContent = prompt;
 
     // Seed the ORIGINAL card. This one waits for the LIVE response from
@@ -430,7 +515,7 @@
     // than calling /api/stream-one. Status stays "loading" until the
     // content script relays the stabilized assistant text.
     state.entries.push({
-      label: "CHATGPT",
+      label: site.label,
       prompt,
       response: "",
       error: "",
@@ -438,7 +523,7 @@
       status: "loading",
       isLive: true, // marker — do not call stream-one
     });
-    state.expandedIndex = 0;
+    state.activeIndex = 0;
     renderCards();
 
     // Prepare the promise that /api/analyze will await.
@@ -475,7 +560,7 @@
     }
     renderCards();
 
-    setStatus("streaming variants + waiting for ChatGPT…", "is-working");
+    setStatus(`streaming variants + waiting for ${site.product}…`, "is-working");
 
     // Step 2: stream the 3 adversarial variants (entries 1,2,3) against
     // gpt-4o via /api/stream-one. Entry 0 (CHATGPT / isLive) is NOT streamed
@@ -494,17 +579,21 @@
     });
     await Promise.all(runPromises);
 
-    // Step 3: analyze (only if all 4 produced something).
-    const allOk = state.entries.every((e) => e.status === "done" && e.response);
-    if (!allOk) {
-      setStatus("partial failure", "is-error");
+    // Step 3: analyze. Require the ORIGINAL plus at least 2 variants with
+    // real responses — less than that and the analyzer has nothing useful to
+    // compare. Otherwise proceed with whatever succeeded.
+    const original = state.entries[0];
+    const okVariants = state.entries
+      .slice(1)
+      .filter((e) => e.status === "done" && e.response && e.response.trim().length > 0);
+    if (!original.response || okVariants.length < 2) {
+      setStatus("partial failure — not enough responses to analyze", "is-error");
       return;
     }
 
     setStatus("analyzing consistency…", "is-working");
     try {
-      const original = state.entries[0];
-      const variantsForAnalyze = state.entries.slice(1).map((e) => ({
+      const variantsForAnalyze = okVariants.map((e) => ({
         type: e.label,
         prompt: e.prompt,
         response: e.response,
@@ -515,9 +604,12 @@
         variants: variantsForAnalyze,
       });
       state.analysis = analysis;
-      // Attach stances to entries
+      // Attach stances — analyzer returned them in order [ORIGINAL, ...okVariants],
+      // so map by identity, not by index into state.entries (which may include
+      // failed variants).
       const stances = analysis.stance_by_response || [];
-      state.entries.forEach((e, i) => {
+      const orderedEntries = [original, ...okVariants];
+      orderedEntries.forEach((e, i) => {
         e.stance = stances[i] || null;
       });
       renderCards();
@@ -545,6 +637,11 @@
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "ECHO_PROMPT_FOR_PANEL" && typeof msg.prompt === "string") {
+      const capturedAt = msg.capturedAt || 0;
+      if (capturedAt && capturedAt < panelOpenedAt) {
+        LOG("ignoring prompt captured before panel open");
+        return;
+      }
       LOG("received prompt from bg:", msg.prompt.slice(0, 80));
       handleCaptured(msg.prompt);
     }
@@ -565,22 +662,9 @@
     }
   });
 
-  // Pick up any pending prompt captured before the panel opened.
-  chrome.runtime.sendMessage({ type: "ECHO_GET_LAST_PROMPT" }, (pending) => {
-    const err = chrome.runtime.lastError;
-    if (err) {
-      LOG("could not fetch pending prompt:", err.message);
-      return;
-    }
-    if (pending && pending.prompt) {
-      const age = Date.now() - (pending.capturedAt || 0);
-      LOG(`pending prompt age: ${age}ms`);
-      if (age < 30000) handleCaptured(pending.prompt);
-      else LOG("pending prompt stale, ignoring");
-    } else {
-      LOG("no pending prompt");
-    }
-  });
+  // Only handle prompts captured AFTER the panel opens — no stored history.
+  const panelOpenedAt = Date.now();
+  LOG("panel opened at", panelOpenedAt, "— ignoring any prior prompts");
 
   // Tell the background when the side panel is being closed (by the user
   // clicking X, or by Chrome tearing down the panel). Lets background keep

@@ -20,20 +20,52 @@
   }
   window.__ECHO_INJECTED__ = true;
 
-  // Correct selectors — ChatGPT's composer is a ProseMirror contenteditable
-  // at #prompt-textarea, wrapped by a div with data-composer-surface="true".
-  // There is NO <form> around it, which is why the previous selector failed.
+  // Site detection — branches selectors between ChatGPT and Claude.
+  const HOST = location.hostname;
+  const IS_CLAUDE = /(^|\.)claude\.(ai|com)$/.test(HOST);
+  const IS_CHATGPT = /(^|\.)(chatgpt\.com|chat\.openai\.com)$/.test(HOST);
+  const IS_GEMINI = /(^|\.)gemini\.google\.com$/.test(HOST);
+  LOG("host:", HOST, "— claude?", IS_CLAUDE, "chatgpt?", IS_CHATGPT, "gemini?", IS_GEMINI);
+
+  // Composer selectors:
+  //   ChatGPT → #prompt-textarea (ProseMirror contenteditable)
+  //   Claude  → div.ProseMirror[contenteditable="true"], aria-label "Write your prompt..."
   function findComposer() {
+    if (IS_CLAUDE) {
+      return (
+        document.querySelector('div.ProseMirror[contenteditable="true"]') ||
+        document.querySelector('[contenteditable="true"][aria-label*="prompt" i]') ||
+        document.querySelector('[contenteditable="true"][role="textbox"]')
+      );
+    }
+    if (IS_GEMINI) {
+      return (
+        document.querySelector('rich-textarea .ql-editor[contenteditable="true"]') ||
+        document.querySelector('div.ql-editor[contenteditable="true"]') ||
+        document.querySelector('[contenteditable="true"][role="textbox"]')
+      );
+    }
     return (
       document.querySelector("#prompt-textarea") ||
-      document.querySelector(
-        '[data-composer-surface="true"] [contenteditable="true"]'
-      ) ||
+      document.querySelector('[data-composer-surface="true"] [contenteditable="true"]') ||
       document.querySelector('textarea[name="prompt-textarea"]')
     );
   }
 
   function findSendButton() {
+    if (IS_CLAUDE) {
+      return (
+        document.querySelector('button[aria-label="Send message" i]') ||
+        document.querySelector('button[aria-label*="send" i]:not([aria-label*="stop" i])')
+      );
+    }
+    if (IS_GEMINI) {
+      return (
+        document.querySelector('button.send-button') ||
+        document.querySelector('button[aria-label*="Send" i]:not([aria-label*="stop" i])') ||
+        document.querySelector('button[mattooltip*="Send" i]')
+      );
+    }
     return (
       document.querySelector("#composer-submit-button") ||
       document.querySelector('button[data-testid="send-button"]') ||
@@ -42,13 +74,33 @@
     );
   }
 
+  // Message container selectors per site.
+  const USER_MSG_SEL = IS_CLAUDE
+    ? '[data-testid="user-message"], div[data-test-render-count]:not(.font-claude-message)'
+    : IS_GEMINI
+    ? 'user-query .query-text, user-query .query-content, .user-query-container'
+    : '[data-message-author-role="user"]';
+  const ASST_MSG_SEL = IS_CLAUDE
+    ? '.font-claude-message, [data-is-streaming], div[data-test-render-count].font-claude-message'
+    : IS_GEMINI
+    ? '.markdown.markdown-main-panel'
+    : '[data-message-author-role="assistant"]';
+
   function captureFromElement(el) {
     if (!el) return "";
     // ProseMirror uses contenteditable; use innerText for the rendered text,
     // falling back to .value for the hidden textarea case.
     const text = (el.innerText || el.value || "").trim();
     // Strip ChatGPT's placeholder text that sometimes gets picked up.
-    if (text === "Ask anything" || text === "Chat with ChatGPT") return "";
+    if (
+      text === "Ask anything" ||
+      text === "Chat with ChatGPT" ||
+      text === "Reply to Claude…" ||
+      text === "Write your prompt to Claude" ||
+      text === "How can I help you today?" ||
+      text === "Ask Gemini" ||
+      text === "Enter a prompt here"
+    ) return "";
     return text;
   }
 
@@ -63,6 +115,14 @@
     // Capture is ALWAYS on — the button toggle only controls panel visibility,
     // never the capture pipeline. Side panel can decide whether to show or
     // ignore incoming prompts.
+    // Gemini's DOM sometimes wraps the user query with an a11y label
+    // ("Tú dijiste" / "You said") that gets picked up as a second, distinct
+    // capture. Strip it so both capture paths produce the same string and
+    // get dedup'd below.
+    prompt = prompt
+      .replace(/^(Tú dijiste|Tu dijiste|You said|Dijiste)[\s:]*\n+/i, "")
+      .trim();
+    if (!prompt) return;
     const now = Date.now();
     if (prompt === lastSent.prompt && now - lastSent.at < 3000) {
       LOG(`dedup: already sent "${prompt.slice(0, 40)}..." ${now - lastSent.at}ms ago`);
@@ -95,6 +155,64 @@
     const style = document.createElement("style");
     style.id = ECHO_STYLE_ID;
     style.textContent = `
+      #${ECHO_BTN_ID} {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 9999px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        margin: 0 2px;
+        padding: 0;
+        box-sizing: border-box;
+        vertical-align: middle;
+        flex: 0 0 auto;
+      }
+      /* Gemini: sit the Echo icon in a 24x24 footprint, same visual weight
+         as the "+" and mic icons. Disable pulse rings entirely — Gemini's
+         material buttons already have their own hover ripple. */
+      body .leading-actions-wrapper #${ECHO_BTN_ID} {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        max-width: 28px !important;
+        max-height: 28px !important;
+        line-height: 28px !important;
+        font: inherit !important;
+        letter-spacing: normal !important;
+        text-transform: none !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+        margin: 0 4px !important;
+      }
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-logo-wrap {
+        width: 18px;
+        height: 18px;
+      }
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-logo-wrap svg {
+        width: 18px;
+        height: 18px;
+      }
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-pulse-ring {
+        display: none !important;
+        animation: none !important;
+      }
+      /* Gemini: no animations at all — just the static icon. */
+      body .leading-actions-wrapper #${ECHO_BTN_ID},
+      body .leading-actions-wrapper #${ECHO_BTN_ID} *,
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-logo-wrap,
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-btn-ring,
+      body .leading-actions-wrapper #${ECHO_BTN_ID} .echo-btn-dot {
+        animation: none !important;
+        transition: none !important;
+      }
+      #${ECHO_BTN_ID}:hover {
+        background: rgba(124, 58, 237, 0.08);
+      }
       #${ECHO_BTN_ID} .echo-logo-wrap {
         position: relative;
         display: inline-flex;
@@ -138,23 +256,65 @@
   function injectEchoButton() {
     if (document.getElementById(ECHO_BTN_ID)) return; // already injected
 
-    // Anchor: the dictation button. Its container is the action row we want.
-    const anchor =
-      document.querySelector('button[aria-label*="dictation" i]') ||
-      document.querySelector('button[data-testid="composer-speech-button"]');
-    if (!anchor) return;
-
-    // Climb to the button row. ChatGPT wraps each button in a <span>, and
-    // all of them sit in a flex container with "ms-auto" or similar.
-    const row =
-      anchor.closest(".ms-auto") ||
-      (anchor.parentElement && anchor.parentElement.parentElement);
+    let anchor, row, insertAfter = null;
+    if (IS_CLAUDE) {
+      // Claude composer action row: contains "Toggle menu" (+) and
+      // "Toggle plan mode" buttons on the left, then a flex-1 spacer, then
+      // the model selector + submit on the right. We want Echo right after
+      // Plan mode, before the spacer.
+      // Order of preference: Plan mode → Toggle menu → Add files (regular chat).
+      const planBtn = document.querySelector('button[aria-label="Toggle plan mode" i]');
+      const menuBtn = document.querySelector('button[aria-label="Toggle menu" i]');
+      const addBtn  = document.querySelector(
+        'button[aria-label="Add files, connectors, and more" i], ' +
+        'button[aria-label*="add files" i]'
+      );
+      anchor = planBtn || menuBtn || addBtn;
+      if (!anchor) return;
+      // For Plan mode / Toggle menu the parent IS the action row.
+      // For Add files, the button is wrapped in an extra <div>, so climb once.
+      row = anchor.parentElement;
+      let afterNode = anchor;
+      if (row && row.childElementCount === 1 && /flex/.test(row.parentElement?.className || "")) {
+        // anchor is wrapped — climb one level and use the wrapper as the "after" node.
+        afterNode = row;
+        row = row.parentElement;
+      }
+      if (!row) return;
+      insertAfter = afterNode;
+    } else if (IS_GEMINI) {
+      // Gemini: .leading-actions-wrapper holds [uploader (+)] [toolbox-drawer].
+      // Anchor on the uploader container; insert Echo right after it, before
+      // "Herramientas".
+      const wrapper = document.querySelector('.leading-actions-wrapper');
+      if (!wrapper) return;
+      const uploader = wrapper.querySelector('.uploader-button-container, uploader');
+      row = wrapper;
+      insertAfter = uploader || wrapper.firstElementChild;
+      anchor = insertAfter;
+    } else {
+      // ChatGPT: anchor on dictation button, climb to .ms-auto action row.
+      anchor =
+        document.querySelector('button[aria-label*="dictation" i]') ||
+        document.querySelector('button[data-testid="composer-speech-button"]');
+      if (!anchor) return;
+      row =
+        anchor.closest(".ms-auto") ||
+        (anchor.parentElement && anchor.parentElement.parentElement);
+    }
     if (!row) return;
 
     const btn = document.createElement("button");
     btn.id = ECHO_BTN_ID;
     btn.type = "button";
-    btn.className = "composer-btn h-9 min-h-9 w-9 min-w-9";
+    // Only ChatGPT needs its Tailwind/composer classes. Claude + Gemini rely
+    // on our own #echo-composer-btn styles so the button doesn't inherit the
+    // host app's button theme and blow up visually.
+    if (IS_CHATGPT) {
+      btn.className = "composer-btn h-9 min-h-9 w-9 min-w-9";
+    } else {
+      btn.className = "";
+    }
     btn.setAttribute("aria-label", "Analyze with Echo");
     btn.title = "Analyze with Echo — run 3 adversarial variants in parallel";
     btn.innerHTML = `
@@ -169,9 +329,14 @@
     `;
     btn.addEventListener("click", onEchoButtonClick);
 
-    // Insert at start of row so it sits left of dictation + voice.
     ensureEchoButtonStyles();
-    row.insertBefore(btn, row.firstChild);
+    if (insertAfter && insertAfter.parentElement === row) {
+      // Claude: insert right after the anchor (Plan mode / Toggle menu).
+      row.insertBefore(btn, insertAfter.nextSibling);
+    } else {
+      // ChatGPT: insert at the start of the action row.
+      row.insertBefore(btn, row.firstChild);
+    }
     LOG("injected Echo button into composer");
     updateEchoButtonVisual();
   }
@@ -262,7 +427,7 @@
       const target = e.target;
       if (!(target instanceof Element)) return;
       const btn = target.closest(
-        '#composer-submit-button, button[data-testid="send-button"], button[aria-label*="Send" i]'
+        '#composer-submit-button, button[data-testid="send-button"], button[aria-label*="Send" i], button[aria-label="Send message" i]'
       );
       if (!btn) return;
       const composer = findComposer();
@@ -282,7 +447,12 @@
   let lastAsstSent = { text: "", at: 0 };
 
   function sendAssistant(el) {
-    const text = (el.innerText || "").trim();
+    let text = (el.innerText || "").trim();
+    // Gemini prepends "Tú dijiste: <user query>" / "You said: ..." as an a11y
+    // label inside the response container. Strip it.
+    text = text
+      .replace(/^(Tú dijiste|Tu dijiste|You said|Dijiste)[\s:]*[^\n]*\n+/i, "")
+      .trim();
     if (!text || text.length < 20) return; // ignore placeholders / blanks
     const now = Date.now();
     // Dedup: if same text was sent in the last 3s, skip
@@ -310,7 +480,7 @@
 
   const transcriptObs = new MutationObserver((mutations) => {
     // 1) User messages — capture fallback for the prompt.
-    const userMsgs = document.querySelectorAll('[data-message-author-role="user"]');
+    const userMsgs = document.querySelectorAll(USER_MSG_SEL);
     if (userMsgs.length > 0) {
       const newest = userMsgs[userMsgs.length - 1];
       if (!seenUserMsgs.has(newest)) {
@@ -321,9 +491,7 @@
     }
 
     // 2) Assistant messages — watch the latest one and debounce capture.
-    const asstMsgs = document.querySelectorAll(
-      '[data-message-author-role="assistant"]'
-    );
+    const asstMsgs = document.querySelectorAll(ASST_MSG_SEL);
     if (asstMsgs.length > 0) {
       const latest = asstMsgs[asstMsgs.length - 1];
       if (!seenAsstMsgs.has(latest)) {

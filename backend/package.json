@@ -2,14 +2,16 @@
   "name": "echo-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Echo — Vercel serverless API for adversarial variant generation, parallel execution, and consistency analysis.",
+  "description": "Echo backend — sycophancy detection for LLMs. Adversarial variant generation (Claude), parallel execution across OpenAI/Anthropic/Google, and consistency scoring.",
   "scripts": {
-    "dev": "vercel dev",
+    "start": "node dev-server.mjs",
+    "dev": "node dev-server.mjs",
     "deploy": "vercel --prod",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
+    "@google/genai": "^0.15.0",
     "openai": "^4.77.0"
   },
   "devDependencies": {

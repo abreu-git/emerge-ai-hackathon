@@ -1,5 +1,6 @@
 // Echo — runtime config
-// Change ECHO_API_BASE to your deployed Vercel URL later.
-// During local dev, the node dev-server at backend/dev-server.mjs listens on 3939.
+// Public Railway deploy — lets anyone install the extension and use it
+// immediately without running a local backend or setting API keys.
+// To use a local backend instead, change to "http://localhost:3939".
 
-self.ECHO_API_BASE = "http://localhost:3939";
+self.ECHO_API_BASE = "https://echo-backend-production-7055.up.railway.app";

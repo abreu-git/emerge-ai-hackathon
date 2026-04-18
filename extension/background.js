@@ -55,7 +55,7 @@ function openPanelForTab(tab) {
     })
     .catch((e) => LOG("panel open failed:", e.message));
 
-  if (tab.url && /https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url)) {
+  if (tab.url && /https:\/\/(chatgpt\.com|chat\.openai\.com|claude\.ai|claude\.com|gemini\.google\.com)\//.test(tab.url)) {
     chrome.tabs.sendMessage(tab.id, { type: "ECHO_ACTIVATE" }, () => {
       const err = chrome.runtime.lastError;
       if (err) LOG("activate msg not delivered:", err.message);

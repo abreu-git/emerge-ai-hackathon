@@ -168,6 +168,19 @@ button:focus-visible {
   background: var(--color-bg-app);
 }
 
+/* Site badge (favicon of the active tab — chatgpt/claude/etc) */
+.echo-site-badge {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* Breathing keyframe — reused by the empty-state mark. */
 @keyframes echo-breathe {
   0%, 100% { transform: scale(1); }
@@ -260,27 +273,64 @@ button:focus-visible {
   color: var(--color-text-muted);
 }
 
-/* ---------- Response cards scroll area ---------- */
-.echo-cards {
+/* ---------- Carousel ---------- */
+.echo-carousel {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3) var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-.echo-cards::-webkit-scrollbar { width: 6px; }
-.echo-cards::-webkit-scrollbar-track { background: transparent; }
-.echo-cards::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-.echo-cards::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-strong);
+  min-height: 0;
 }
 
-/* ---------- Response card (bubble accordion) ---------- */
+.echo-dots {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+.echo-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background var(--t-quick) var(--ease),
+              transform var(--t-quick) var(--ease);
+}
+.echo-dot:hover { background: var(--color-border-strong); }
+.echo-dot.is-active {
+  background: var(--color-accent);
+  transform: scale(1.3);
+}
+.echo-dot:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.echo-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  padding: var(--space-4) var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  scrollbar-width: none;
+}
+.echo-cards::-webkit-scrollbar { display: none; }
+
+/* ---------- Response card (one per carousel slide) ---------- */
 .echo-card {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  min-width: 0;
+  max-height: 100%;
+  overflow-y: auto;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-hair);
   border-radius: var(--radius-lg);

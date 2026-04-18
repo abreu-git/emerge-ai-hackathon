@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Echo — Personal Red Teaming for LLMs",
-  "version": "0.2.0",
-  "description": "See the same AI from every angle. Real-time consistency scoring for ChatGPT (and soon Claude, Gemini).",
+  "name": "Echo — Sycophancy Detector for ChatGPT, Claude & Gemini",
+  "version": "0.3.0",
+  "description": "Catch when your LLM is telling you what you want to hear. Echo runs 3 adversarial variants on every answer and scores consistency 0–100 in real time.",
   "action": {
     "default_title": "Open Echo",
     "default_icon": {
@@ -26,7 +26,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://claude.com/*",
+        "https://gemini.google.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -35,7 +41,13 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://claude.com/*",
+    "https://gemini.google.com/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://localhost:3939/*",
+    "http://127.0.0.1/*",
+    "http://127.0.0.1:3939/*",
+    "https://echo-backend-production-7055.up.railway.app/*"
   ]
 }
