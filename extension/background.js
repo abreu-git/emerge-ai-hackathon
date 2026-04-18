@@ -59,22 +59,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "ECHO_TOGGLE_PANEL") {
     const tabId = sender.tab?.id;
+    const windowId = sender.tab?.windowId;
     const enable = !!msg.enable;
-    LOG(`toggle panel: enable=${enable}, tab=${tabId}`);
+    LOG(`toggle panel: enable=${enable}, tab=${tabId}, win=${windowId}`);
     if (tabId == null) {
       sendResponse({ ok: false, reason: "no tab id" });
       return;
     }
     if (enable) {
-      // Re-register + open the panel for this tab.
-      chrome.sidePanel
-        .setOptions({ tabId, path: "sidebar.html", enabled: true })
-        .then(() => chrome.sidePanel.open({ tabId }))
-        .then(() => LOG("sidePanel opened"))
-        .catch((err) => LOG("sidePanel.open failed:", err.message));
+      // CRITICAL: open() must be called synchronously on the user-gesture
+      // message to preserve gesture context. Fire setOptions without await.
+      try {
+        chrome.sidePanel.setOptions({
+          tabId,
+          path: "sidebar.html",
+          enabled: true,
+        });
+      } catch (e) {
+        LOG("setOptions(enable) threw:", e.message);
+      }
+      // open() returns a Promise — chain only for logging, don't await.
+      const openP = windowId != null
+        ? chrome.sidePanel.open({ tabId, windowId })
+        : chrome.sidePanel.open({ tabId });
+      openP
+        .then(() => LOG("sidePanel.open resolved"))
+        .catch((err) => LOG("sidePanel.open rejected:", err.message));
     } else {
-      // Disabling removes the panel registration for this tab, which Chrome
-      // treats as closing it. Re-enabled next time the user clicks ON.
       chrome.sidePanel
         .setOptions({ tabId, enabled: false })
         .then(() => LOG("sidePanel disabled (closed)"))
