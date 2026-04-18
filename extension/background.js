@@ -16,14 +16,15 @@ chrome.runtime.onInstalled.addListener(() => {
   LOG("installed");
 });
 
-// Toolbar icon click — open panel AND re-activate the content script's
-// composer button injection + observers in case ChatGPT blocked them.
-chrome.action.onClicked.addListener((tab) => {
-  if (!tab || !tab.id) return;
-  LOG(`toolbar icon clicked, tab=${tab.id}, win=${tab.windowId}, url=${tab.url}`);
+// Per-tab open/close state for the side panel. Chrome doesn't expose this
+// directly, so we track it ourselves. Kept in sync by:
+//  - setting true after we call sidePanel.open()
+//  - setting false after setOptions({enabled:false})
+//  - listening to ECHO_PANEL_CLOSING from the panel's pagehide/unload
+const panelOpenState = new Map(); // tabId -> boolean
 
-  // Open side panel for this tab. Gesture context is preserved because we
-  // call these synchronously inside the onClicked handler.
+function openPanelForTab(tab) {
+  if (!tab?.id) return;
   try {
     chrome.sidePanel.setOptions({
       tabId: tab.id,
@@ -31,23 +32,54 @@ chrome.action.onClicked.addListener((tab) => {
       enabled: true,
     });
   } catch (e) {
-    LOG("setOptions threw:", e.message);
+    LOG("setOptions(open) threw:", e.message);
   }
   chrome.sidePanel
     .open({ tabId: tab.id, windowId: tab.windowId })
-    .then(() => LOG("panel opened from toolbar"))
+    .then(() => {
+      panelOpenState.set(tab.id, true);
+      LOG("panel opened, state=true for tab", tab.id);
+    })
     .catch((e) => LOG("panel open failed:", e.message));
 
-  // Wake up / re-inject the content script's button if we're on ChatGPT.
   if (tab.url && /https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url)) {
     chrome.tabs.sendMessage(tab.id, { type: "ECHO_ACTIVATE" }, () => {
       const err = chrome.runtime.lastError;
       if (err) LOG("activate msg not delivered:", err.message);
-      else LOG("ECHO_ACTIVATE acknowledged by content script");
+      else LOG("ECHO_ACTIVATE acknowledged");
     });
-  } else {
-    LOG("non-ChatGPT tab — skipped ECHO_ACTIVATE");
   }
+}
+
+function closePanelForTab(tabId) {
+  chrome.sidePanel
+    .setOptions({ tabId, enabled: false })
+    .then(() => {
+      panelOpenState.set(tabId, false);
+      LOG("panel closed, state=false for tab", tabId);
+    })
+    .catch((e) => LOG("panel close failed:", e.message));
+}
+
+function togglePanelForTab(tab) {
+  if (!tab?.id) return;
+  const isOpen = panelOpenState.get(tab.id) === true;
+  LOG(`toggle for tab ${tab.id}: currently ${isOpen ? "OPEN" : "CLOSED"}`);
+  if (isOpen) closePanelForTab(tab.id);
+  else openPanelForTab(tab);
+}
+
+// Toolbar icon click toggles panel for the active tab. Same behavior as
+// the composer button (ECHO_OPEN_PANEL / ECHO_TOGGLE_PANEL).
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab || !tab.id) return;
+  LOG(`toolbar icon clicked, tab=${tab.id}, url=${tab.url}`);
+  togglePanelForTab(tab);
+});
+
+// Clean up state when tab closes.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  panelOpenState.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -94,32 +126,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "ECHO_OPEN_PANEL") {
-    const tabId = sender.tab?.id;
-    const windowId = sender.tab?.windowId;
-    LOG(`open panel: tab=${tabId}, win=${windowId}`);
-    if (tabId == null) {
-      sendResponse({ ok: false, reason: "no tab id" });
+    // Composer-button click — toggle same as toolbar icon.
+    if (!sender.tab) {
+      sendResponse({ ok: false, reason: "no tab in sender" });
       return;
     }
-    // CRITICAL: open() must be called synchronously in the message handler
-    // to preserve the user-gesture context from the composer click. Do NOT
-    // await setOptions — fire and forget.
-    try {
-      chrome.sidePanel.setOptions({
-        tabId,
-        path: "sidebar.html",
-        enabled: true,
-      });
-    } catch (e) {
-      LOG("setOptions threw:", e.message);
-    }
-    const openP =
-      windowId != null
-        ? chrome.sidePanel.open({ tabId, windowId })
-        : chrome.sidePanel.open({ tabId });
-    openP
-      .then(() => LOG("sidePanel.open resolved"))
-      .catch((err) => LOG("sidePanel.open rejected:", err.message));
+    togglePanelForTab(sender.tab);
+    sendResponse({ ok: true });
+    return;
+  }
+
+  if (msg.type === "ECHO_PANEL_CLOSING") {
+    // Sent by the side panel's pagehide/unload so we know the user closed
+    // it via the X button and can update our state accordingly.
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const active = tabs && tabs[0];
+      if (active?.id) {
+        panelOpenState.set(active.id, false);
+        LOG(`panel closing signal — state=false for tab ${active.id}`);
+      }
+    });
     sendResponse({ ok: true });
     return;
   }

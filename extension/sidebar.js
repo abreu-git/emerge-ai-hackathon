@@ -530,5 +530,14 @@
     }
   });
 
+  // Tell the background when the side panel is being closed (by the user
+  // clicking X, or by Chrome tearing down the panel). Lets background keep
+  // its panelOpenState in sync so the next click reopens correctly.
+  window.addEventListener("pagehide", () => {
+    try {
+      chrome.runtime.sendMessage({ type: "ECHO_PANEL_CLOSING" });
+    } catch (_e) {}
+  });
+
   LOG("side panel ready");
 })();
