@@ -18,105 +18,87 @@
         </div>
       </header>
 
-      <nav class="echo-nav" id="echo-nav" hidden>
-        <button
-          class="echo-nav-arrow"
-          id="echo-prev"
-          aria-label="Previous prompt"
-        >
-          ‹
-        </button>
-        <span class="echo-nav-count" id="echo-nav-count">1 / 1</span>
-        <button
-          class="echo-nav-arrow"
-          id="echo-next"
-          aria-label="Next prompt"
-        >
-          ›
-        </button>
-      </nav>
-
-      <section
-        class="echo-prompt-card"
-        id="echo-prompt-card"
-        hidden
-      >
+      <!-- Captured prompt (top, always visible once there's a prompt) -->
+      <section class="echo-prompt-card" id="echo-prompt-card" hidden>
         <div class="echo-prompt-label">Captured prompt</div>
         <div class="echo-prompt-text" id="echo-prompt-box"></div>
       </section>
 
+      <!-- Empty state -->
       <section class="echo-empty" id="echo-empty">
         <div class="echo-empty-title">Type a prompt in ChatGPT</div>
         <div class="echo-empty-text">
-          Echo auto-captures from the ChatGPT composer and runs it 4 ways
-          against GPT-4o — the same model that powers ChatGPT — to score
-          consistency with Claude.
+          Echo auto-captures from the ChatGPT composer and runs 4 parallel
+          calls against GPT-4o to score consistency with Claude.
         </div>
       </section>
 
-      <section class="echo-body" id="echo-body" hidden>
-        <div class="echo-score-card">
-          <div class="echo-score-ring">
-            <svg
-              viewBox="0 0 120 120"
-              width="120"
-              height="120"
-              aria-hidden="true"
-            >
-              <circle
-                cx="60"
-                cy="60"
-                r="52"
-                stroke="#1F1F1F"
-                stroke-width="8"
-                fill="none"
-              />
-              <circle
-                id="echo-score-arc"
-                class="echo-score-arc"
-                cx="60"
-                cy="60"
-                r="52"
-                stroke="currentColor"
-                stroke-width="8"
-                fill="none"
-                stroke-linecap="round"
-                stroke-dasharray="326"
-                stroke-dashoffset="326"
-                transform="rotate(-90 60 60)"
-              />
-            </svg>
-            <div id="echo-score-num" class="echo-score-num">—</div>
+      <!-- Response cards scroll area -->
+      <main class="echo-cards" id="echo-cards" hidden></main>
+
+      <!-- Consistency footer bar (clickable → opens report drawer) -->
+      <button
+        class="echo-footer-bar"
+        id="echo-footer-bar"
+        type="button"
+        hidden
+        aria-label="Open consistency report"
+      >
+        <div class="echo-footer-row">
+          <span class="echo-footer-label">Consistency</span>
+          <span class="echo-footer-score" id="echo-footer-score">—</span>
+        </div>
+        <div class="echo-footer-bar-track" aria-hidden="true">
+          <div class="echo-footer-bar-fill" id="echo-footer-bar-fill"></div>
+        </div>
+        <div class="echo-footer-hint">Tap for full report</div>
+      </button>
+
+      <!-- Report drawer (slides up when footer is tapped) -->
+      <aside
+        class="echo-drawer"
+        id="echo-drawer"
+        hidden
+        aria-hidden="true"
+      >
+        <header class="echo-drawer-header">
+          <div>
+            <div class="echo-drawer-label">Consistency report</div>
+            <div class="echo-drawer-score" id="echo-drawer-score">—</div>
           </div>
-          <div class="echo-score-meta">
-            <div class="echo-score-label">Consistency</div>
-            <div id="echo-score-verdict" class="echo-score-verdict">
-              Analyzing…
-            </div>
+          <button
+            class="echo-drawer-close"
+            id="echo-drawer-close"
+            aria-label="Close report"
+          >
+            ×
+          </button>
+        </header>
+        <div class="echo-drawer-body">
+          <div class="echo-drawer-section">
+            <div class="echo-drawer-section-label">Verdict</div>
+            <div class="echo-drawer-verdict" id="echo-drawer-verdict"></div>
+          </div>
+          <div class="echo-drawer-section">
+            <div class="echo-drawer-section-label">Recommendation</div>
+            <div class="echo-drawer-recommendation" id="echo-drawer-recommendation"></div>
+          </div>
+          <div class="echo-drawer-section">
+            <div class="echo-drawer-section-label">Stances</div>
+            <div class="echo-drawer-stances" id="echo-drawer-stances"></div>
+          </div>
+          <div class="echo-drawer-section">
+            <div class="echo-drawer-section-label">Contradictions</div>
+            <div class="echo-drawer-contradictions" id="echo-drawer-contradictions"></div>
           </div>
         </div>
+      </aside>
 
-        <nav class="echo-tabs" role="tablist">
-          <button class="echo-tab is-active" data-tab="responses" role="tab">
-            Responses
-          </button>
-          <button class="echo-tab" data-tab="contradictions" role="tab">
-            Contradictions
-          </button>
-        </nav>
-
-        <div class="echo-panel" data-panel="responses">
-          <div id="echo-resp-list" class="echo-resp-list"></div>
-        </div>
-        <div class="echo-panel" data-panel="contradictions" hidden>
-          <div id="echo-contr-list" class="echo-contr-list"></div>
-        </div>
-      </section>
-
-      <footer class="echo-footer">
+      <!-- Minimal status line (replaces old footer) -->
+      <div class="echo-status-line">
         <span id="echo-status" class="echo-status">ready</span>
         <span class="echo-powered">Claude + GPT-4o</span>
-      </footer>
+      </div>
     </div>
 
     <script src="config.js"></script>

@@ -316,6 +316,22 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/run-one") {
+      const body = await readBody(req);
+      const prompt = (body.prompt ?? "").trim();
+      if (!prompt) {
+        res.writeHead(400).end(JSON.stringify({ error: "prompt required" }));
+        return;
+      }
+      const t0 = Date.now();
+      const { response: text, tokens } = await runOne(prompt);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({ response: text, tokens, elapsed_ms: Date.now() - t0 })
+      );
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/run-variants") {
       const body = await readBody(req);
       if (!body.prompt || !Array.isArray(body.variants)) {

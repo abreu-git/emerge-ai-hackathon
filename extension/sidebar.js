@@ -1,7 +1,9 @@
 // Echo — side panel logic
-// Captures prompts from the ChatGPT content script (via background),
-// orchestrates the backend call, keeps an in-memory session history, and
-// renders the current entry. No composer here — entry point is ChatGPT.
+// Multi-step orchestration with progressive reveal:
+//   1. /api/variants       → 3 variant questions
+//   2. /api/run-one (x4)   → fire 4 parallel calls, render each as it resolves
+//   3. /api/analyze        → consistency score + contradictions + verdict
+// Accordion cards (one expanded at a time). Footer bar opens report drawer.
 
 (function () {
   const API_BASE = self.ECHO_API_BASE || "http://localhost:3939";
@@ -10,83 +12,38 @@
 
   // ---------- DOM refs ----------
   const empty = document.getElementById("echo-empty");
-  const body = document.getElementById("echo-body");
   const promptCard = document.getElementById("echo-prompt-card");
   const promptBox = document.getElementById("echo-prompt-box");
-  const nav = document.getElementById("echo-nav");
-  const prevBtn = document.getElementById("echo-prev");
-  const nextBtn = document.getElementById("echo-next");
-  const navCount = document.getElementById("echo-nav-count");
-  const respList = document.getElementById("echo-resp-list");
-  const contrList = document.getElementById("echo-contr-list");
-  const scoreRing = document.querySelector(".echo-score-ring");
-  const scoreNum = document.getElementById("echo-score-num");
-  const scoreArc = document.getElementById("echo-score-arc");
-  const scoreVerdict = document.getElementById("echo-score-verdict");
+  const cardsEl = document.getElementById("echo-cards");
+  const footerBar = document.getElementById("echo-footer-bar");
+  const footerScore = document.getElementById("echo-footer-score");
+  const footerFill = document.getElementById("echo-footer-bar-fill");
   const status = document.getElementById("echo-status");
+  const drawer = document.getElementById("echo-drawer");
+  const drawerClose = document.getElementById("echo-drawer-close");
+  const drawerScore = document.getElementById("echo-drawer-score");
+  const drawerVerdict = document.getElementById("echo-drawer-verdict");
+  const drawerRec = document.getElementById("echo-drawer-recommendation");
+  const drawerStances = document.getElementById("echo-drawer-stances");
+  const drawerContradictions = document.getElementById("echo-drawer-contradictions");
 
   // ---------- state ----------
-  // history: [{ prompt, capturedAt, data: null|object, status: 'loading'|'done'|'error', error?: string }]
+  // entries: [{ label, prompt, response, error, stance, status, expected_inconsistency }]
+  // label = "ORIGINAL" | "PARAPHRASE" | "ROLE_SHIFT" | "SPECIFICITY_SHIFT"
+  // status = "pending" | "loading" | "done" | "error"
   const state = {
-    history: [],
-    currentIndex: -1,
+    currentPrompt: "",
+    entries: [],
+    expandedIndex: -1,
+    analysis: null,
   };
 
-  // ---------- tabs ----------
-  document.querySelectorAll(".echo-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document
-        .querySelectorAll(".echo-tab")
-        .forEach((t) => t.classList.remove("is-active"));
-      tab.classList.add("is-active");
-      const name = tab.dataset.tab;
-      document.querySelectorAll(".echo-panel").forEach((p) => {
-        p.hidden = p.dataset.panel !== name;
-      });
-    });
-  });
-
-  // ---------- nav buttons ----------
-  prevBtn.addEventListener("click", () => {
-    if (state.currentIndex > 0) {
-      state.currentIndex--;
-      render();
-    }
-  });
-  nextBtn.addEventListener("click", () => {
-    if (state.currentIndex < state.history.length - 1) {
-      state.currentIndex++;
-      render();
-    }
-  });
-
   // ---------- helpers ----------
-  function scoreClass(score) {
-    if (score == null) return "";
-    if (score >= 80) return "is-high";
-    if (score >= 50) return "is-mid";
+  function scoreClass(s) {
+    if (s == null) return "";
+    if (s >= 80) return "is-high";
+    if (s >= 50) return "is-mid";
     return "is-low";
-  }
-
-  function setScore(value) {
-    scoreRing.classList.remove("is-high", "is-mid", "is-low");
-    scoreNum.classList.remove("is-high", "is-mid", "is-low");
-    if (value == null || Number.isNaN(value)) {
-      scoreNum.textContent = "—";
-      scoreArc.style.strokeDashoffset = "326";
-      return;
-    }
-    const v = Math.max(0, Math.min(100, Math.round(value)));
-    scoreNum.textContent = String(v);
-    const circumference = 326;
-    scoreArc.style.strokeDashoffset = String(
-      circumference - (circumference * v) / 100
-    );
-    const cls = scoreClass(v);
-    if (cls) {
-      scoreRing.classList.add(cls);
-      scoreNum.classList.add(cls);
-    }
   }
 
   function setStatus(text, kind) {
@@ -95,243 +52,343 @@
     if (kind) status.classList.add(kind);
   }
 
-  function renderResponses(original, variants, stanceByResponse) {
-    respList.innerHTML = "";
-    const labels = ["ORIGINAL", ...variants.map((v) => v.type)];
-    const all = [original, ...variants];
+  function clearAll() {
+    state.entries = [];
+    state.expandedIndex = -1;
+    state.analysis = null;
+    cardsEl.innerHTML = "";
+    footerBar.hidden = true;
+    footerScore.textContent = "—";
+    footerScore.classList.remove("is-high", "is-mid", "is-low");
+    footerFill.style.width = "0%";
+    footerFill.classList.remove("is-high", "is-mid", "is-low");
+    drawer.classList.remove("is-open");
+    drawer.hidden = true;
+    drawer.setAttribute("aria-hidden", "true");
+  }
 
-    all.forEach((r, i) => {
+  // ---------- accordion rendering ----------
+  function reviewText(entry) {
+    if (entry.status === "pending") return "Waiting…";
+    if (entry.status === "loading") return "Running against GPT-4o…";
+    if (entry.status === "error") return `⚠ ${entry.error || "error"}`;
+    return entry.response || "(empty)";
+  }
+
+  function renderCards() {
+    cardsEl.innerHTML = "";
+    state.entries.forEach((entry, i) => {
+      const isExpanded = state.expandedIndex === i;
+
       const card = document.createElement("div");
-      card.className = "echo-resp-card";
+      card.className = `echo-card ${isExpanded ? "is-expanded" : "is-collapsed"} ${
+        entry.status === "loading" ? "is-loading" : ""
+      }`;
+      card.dataset.index = String(i);
 
+      // Header: type + stance chip
       const header = document.createElement("div");
-      header.style.display = "flex";
-      header.style.justifyContent = "space-between";
-      header.style.alignItems = "center";
-      header.style.marginBottom = "4px";
-      header.style.gap = "8px";
+      header.className = "echo-card-header";
 
-      const lab = document.createElement("div");
-      lab.className = "echo-resp-label";
-      lab.textContent = labels[i];
-      header.appendChild(lab);
+      const typeEl = document.createElement("div");
+      typeEl.className = "echo-card-type";
+      typeEl.textContent = entry.label;
+      header.appendChild(typeEl);
 
-      if (stanceByResponse && stanceByResponse[i]) {
-        const stance = stanceByResponse[i];
+      if (entry.stance) {
         const chip = document.createElement("span");
-        chip.className = `echo-stance stance-${stance}`;
-        chip.textContent = stance;
+        chip.className = `echo-stance stance-${entry.stance}`;
+        chip.textContent = entry.stance;
         header.appendChild(chip);
       }
       card.appendChild(header);
 
-      if (r.prompt) {
-        const pr = document.createElement("div");
-        pr.className = "echo-resp-prompt";
-        pr.textContent = r.prompt;
-        card.appendChild(pr);
+      // Question (the variant prompt)
+      if (entry.prompt) {
+        const q = document.createElement("div");
+        q.className = "echo-card-question";
+        q.textContent = entry.prompt;
+        card.appendChild(q);
       }
-      const rt = document.createElement("div");
-      rt.className = "echo-resp-text";
-      if (r.error) {
-        rt.textContent = `⚠ ${r.error}`;
-        rt.style.color = "var(--echo-red)";
-      } else {
-        rt.textContent = r.response || "(empty)";
+
+      // Body (review text)
+      const bodyDiv = document.createElement("div");
+      bodyDiv.className = "echo-card-body";
+      const review = document.createElement("div");
+      review.className = "echo-card-review";
+      review.textContent = reviewText(entry);
+      bodyDiv.appendChild(review);
+      card.appendChild(bodyDiv);
+
+      // Toggle — only show if we have real content
+      if (entry.status === "done" && entry.response) {
+        const toggle = document.createElement("button");
+        toggle.className = "echo-card-toggle";
+        toggle.type = "button";
+        toggle.textContent = isExpanded ? "Show less ▲" : "See more ▼";
+        toggle.addEventListener("click", () => {
+          state.expandedIndex = isExpanded ? -1 : i;
+          renderCards();
+        });
+        card.appendChild(toggle);
       }
-      card.appendChild(rt);
-      respList.appendChild(card);
+
+      cardsEl.appendChild(card);
     });
   }
 
-  function renderContradictions(contradictions) {
-    contrList.innerHTML = "";
-    if (!contradictions || contradictions.length === 0) {
-      const p = document.createElement("div");
-      p.className = "echo-resp-text";
-      p.style.color = "var(--echo-text-faint)";
-      p.textContent = "No contradictions detected.";
-      contrList.appendChild(p);
+  // ---------- footer bar ----------
+  function renderFooter(analysis) {
+    if (!analysis) {
+      footerBar.hidden = true;
       return;
     }
-    for (const c of contradictions) {
-      const card = document.createElement("div");
-      card.className = "echo-resp-card";
+    footerBar.hidden = false;
+    const score = analysis.consistency_score;
+    const cls = scoreClass(score);
 
-      const lab = document.createElement("div");
-      lab.className = "echo-resp-label";
-      lab.textContent = c.dimension || "contradiction";
-      card.appendChild(lab);
+    footerScore.textContent = String(score);
+    footerScore.classList.remove("is-high", "is-mid", "is-low");
+    if (cls) footerScore.classList.add(cls);
 
-      const a = document.createElement("div");
-      a.className = "echo-resp-text";
-      a.style.marginTop = "6px";
-      a.textContent = `A: ${c.response_a || ""}`;
-      card.appendChild(a);
-
-      const b = document.createElement("div");
-      b.className = "echo-resp-text";
-      b.style.marginTop = "6px";
-      b.textContent = `B: ${c.response_b || ""}`;
-      card.appendChild(b);
-
-      if (c.explanation) {
-        const expl = document.createElement("div");
-        expl.className = "echo-resp-prompt";
-        expl.style.marginTop = "8px";
-        expl.style.fontStyle = "normal";
-        expl.textContent = c.explanation;
-        card.appendChild(expl);
-      }
-      contrList.appendChild(card);
-    }
+    footerFill.style.width = `${Math.max(0, Math.min(100, score))}%`;
+    footerFill.classList.remove("is-high", "is-mid", "is-low");
+    if (cls) footerFill.classList.add(cls);
   }
 
-  function renderNav() {
-    const n = state.history.length;
-    if (n === 0) {
-      nav.hidden = true;
-      return;
-    }
-    nav.hidden = false;
-    navCount.textContent = `${state.currentIndex + 1} / ${n}`;
-    prevBtn.disabled = state.currentIndex <= 0;
-    nextBtn.disabled = state.currentIndex >= n - 1;
-  }
+  // ---------- report drawer ----------
+  function openDrawer() {
+    if (!state.analysis) return;
+    const a = state.analysis;
+    const cls = scoreClass(a.consistency_score);
 
-  function render() {
-    renderNav();
+    drawerScore.textContent = String(a.consistency_score);
+    drawerScore.classList.remove("is-high", "is-mid", "is-low");
+    if (cls) drawerScore.classList.add(cls);
 
-    if (state.history.length === 0) {
-      empty.hidden = false;
-      body.hidden = true;
-      promptCard.hidden = true;
-      return;
-    }
+    drawerVerdict.textContent = a.verdict || "";
 
-    empty.hidden = true;
-    body.hidden = false;
-    promptCard.hidden = false;
+    drawerRec.textContent = (a.recommendation || "").replace(/_/g, " ");
+    drawerRec.classList.remove("rec-trust", "rec-verify", "rec-do_not_trust");
+    if (a.recommendation) drawerRec.classList.add(`rec-${a.recommendation}`);
 
-    const entry = state.history[state.currentIndex];
-    promptBox.textContent = entry.prompt;
+    // Stances (same order as entries)
+    drawerStances.innerHTML = "";
+    const stances = a.stance_by_response || [];
+    state.entries.forEach((entry, i) => {
+      const row = document.createElement("div");
+      row.className = "echo-drawer-stance-row";
+      const lab = document.createElement("span");
+      lab.className = "echo-drawer-stance-label";
+      lab.textContent = entry.label;
+      const chip = document.createElement("span");
+      const stance = stances[i] || entry.stance || "—";
+      chip.className = `echo-stance stance-${stance}`;
+      chip.textContent = stance;
+      row.appendChild(lab);
+      row.appendChild(chip);
+      drawerStances.appendChild(row);
+    });
 
-    if (entry.status === "loading") {
-      setScore(null);
-      scoreVerdict.textContent = "Running 4 prompts in parallel against GPT-4o…";
-      setStatus("analyzing…", "is-working");
-      respList.innerHTML = "";
-      const loading = document.createElement("div");
-      loading.className = "echo-resp-text";
-      loading.style.color = "var(--echo-text-dim)";
-      loading.textContent = "Generating 3 adversarial variants…";
-      respList.appendChild(loading);
-      renderContradictions([]);
-      return;
-    }
-
-    if (entry.status === "error") {
-      setScore(null);
-      scoreVerdict.textContent = "Backend error.";
-      setStatus("error", "is-error");
-      respList.innerHTML = "";
-      const card = document.createElement("div");
-      card.className = "echo-resp-card";
-      const lab = document.createElement("div");
-      lab.className = "echo-resp-label";
-      lab.style.color = "var(--echo-red)";
-      lab.textContent = "Backend error";
-      card.appendChild(lab);
-      const txt = document.createElement("div");
-      txt.className = "echo-resp-text";
-      txt.textContent = entry.error || "unknown error";
-      card.appendChild(txt);
-      const hint = document.createElement("div");
-      hint.className = "echo-resp-prompt";
-      hint.style.marginTop = "10px";
-      hint.style.fontStyle = "normal";
-      hint.textContent = "Is the dev server running? cd backend && node dev-server.mjs";
-      card.appendChild(hint);
-      respList.appendChild(card);
-      renderContradictions([]);
-      return;
-    }
-
-    // status === "done"
-    const data = entry.data;
-    const stances = data.analysis?.stance_by_response || null;
-    renderResponses(data.original, data.variants, stances);
-
-    if (data.analysis) {
-      setScore(data.analysis.consistency_score);
-      scoreVerdict.textContent = data.analysis.verdict || "analyzed";
-      renderContradictions(data.analysis.contradictions);
+    // Contradictions
+    drawerContradictions.innerHTML = "";
+    const contrs = a.contradictions || [];
+    if (contrs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "echo-drawer-empty";
+      empty.textContent = "No contradictions detected.";
+      drawerContradictions.appendChild(empty);
     } else {
-      setScore(null);
-      scoreVerdict.textContent = "Analyzer skipped (partial failure).";
-      renderContradictions([]);
-    }
-    setStatus("ready");
-  }
+      for (const c of contrs) {
+        const card = document.createElement("div");
+        card.className = "echo-drawer-contr-card";
 
-  // ---------- backend call ----------
-  async function runOrchestrate(entry) {
-    try {
-      LOG("fetching /api/orchestrate for:", entry.prompt.slice(0, 80));
-      const response = await fetch(`${API_BASE}/api/orchestrate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: entry.prompt }),
-      });
-      LOG("HTTP", response.status);
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`${response.status}: ${text.slice(0, 300)}`);
+        const dim = document.createElement("div");
+        dim.className = "echo-drawer-contr-dim";
+        dim.textContent = c.dimension || "contradiction";
+        card.appendChild(dim);
+
+        const a1 = document.createElement("div");
+        a1.className = "echo-drawer-contr-sample";
+        a1.textContent = `A: ${c.response_a || ""}`;
+        card.appendChild(a1);
+
+        const b1 = document.createElement("div");
+        b1.className = "echo-drawer-contr-sample";
+        b1.textContent = `B: ${c.response_b || ""}`;
+        card.appendChild(b1);
+
+        if (c.explanation) {
+          const expl = document.createElement("div");
+          expl.className = "echo-drawer-contr-expl";
+          expl.textContent = c.explanation;
+          card.appendChild(expl);
+        }
+        drawerContradictions.appendChild(card);
       }
-      const data = await response.json();
-      entry.data = data;
-      entry.status = "done";
-      LOG("orchestrate done, score:", data.analysis?.consistency_score);
-    } catch (err) {
-      entry.status = "error";
-      entry.error = String(err.message ?? err);
-      console.error("[Echo/panel] orchestrate failed:", err);
     }
-    // Re-render only if this entry is still the one being viewed.
-    if (state.history[state.currentIndex] === entry) {
-      render();
+
+    drawer.hidden = false;
+    requestAnimationFrame(() => drawer.classList.add("is-open"));
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  function closeDrawer() {
+    drawer.classList.remove("is-open");
+    drawer.setAttribute("aria-hidden", "true");
+    setTimeout(() => {
+      drawer.hidden = true;
+    }, 300);
+  }
+
+  footerBar.addEventListener("click", openDrawer);
+  drawerClose.addEventListener("click", closeDrawer);
+
+  // ---------- orchestration ----------
+  async function postJSON(path, body) {
+    const r = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`${path}: ${r.status} ${text.slice(0, 200)}`);
+    }
+    return r.json();
+  }
+
+  async function orchestrate(prompt) {
+    LOG("orchestrate:", prompt.slice(0, 80));
+    state.currentPrompt = prompt;
+    clearAll();
+
+    // Show captured prompt immediately.
+    empty.hidden = true;
+    promptCard.hidden = false;
+    promptBox.textContent = prompt;
+
+    // Seed the ORIGINAL card now (status: loading).
+    state.entries.push({
+      label: "ORIGINAL",
+      prompt,
+      response: "",
+      error: "",
+      stance: null,
+      status: "loading",
+    });
+    state.expandedIndex = 0;
+    renderCards();
+
+    setStatus("generating variants…", "is-working");
+
+    // Step 1: generate variants.
+    let variantsData;
+    try {
+      variantsData = await postJSON("/api/variants", { prompt });
+    } catch (err) {
+      LOG("variants failed:", err.message);
+      setStatus("error", "is-error");
+      state.entries[0].status = "error";
+      state.entries[0].error = err.message;
+      renderCards();
+      return;
+    }
+    const variants = variantsData.variants || [];
+    LOG(`got ${variants.length} variants`);
+
+    // Seed variant cards (loading) so they animate in.
+    for (const v of variants) {
+      state.entries.push({
+        label: v.type,
+        prompt: v.prompt,
+        response: "",
+        error: "",
+        stance: null,
+        status: "loading",
+        expected_inconsistency: v.expected_inconsistency,
+      });
+    }
+    renderCards();
+
+    setStatus("running 4 in parallel…", "is-working");
+
+    // Step 2: fire all 4 /api/run-one calls in parallel. Each resolves
+    // independently and updates its card.
+    const runPromises = state.entries.map((entry, i) =>
+      postJSON("/api/run-one", { prompt: entry.prompt })
+        .then((r) => {
+          entry.response = r.response || "";
+          entry.status = "done";
+          LOG(`${entry.label} done (${entry.response.length} chars)`);
+          renderCards();
+        })
+        .catch((err) => {
+          entry.status = "error";
+          entry.error = String(err.message ?? err);
+          LOG(`${entry.label} failed:`, entry.error);
+          renderCards();
+        })
+    );
+    await Promise.all(runPromises);
+
+    // Step 3: analyze (only if all 4 produced something).
+    const allOk = state.entries.every((e) => e.status === "done" && e.response);
+    if (!allOk) {
+      setStatus("partial failure", "is-error");
+      return;
+    }
+
+    setStatus("analyzing consistency…", "is-working");
+    try {
+      const original = state.entries[0];
+      const variantsForAnalyze = state.entries.slice(1).map((e) => ({
+        type: e.label,
+        prompt: e.prompt,
+        response: e.response,
+        expected_inconsistency: e.expected_inconsistency,
+      }));
+      const analysis = await postJSON("/api/analyze", {
+        original: { prompt: original.prompt, response: original.response },
+        variants: variantsForAnalyze,
+      });
+      state.analysis = analysis;
+      // Attach stances to entries
+      const stances = analysis.stance_by_response || [];
+      state.entries.forEach((e, i) => {
+        e.stance = stances[i] || null;
+      });
+      renderCards();
+      renderFooter(analysis);
+      setStatus("ready");
+      LOG("analysis done, score:", analysis.consistency_score);
+    } catch (err) {
+      LOG("analyze failed:", err.message);
+      setStatus("analyzer error", "is-error");
     }
   }
 
-  function handleCapturedPrompt(prompt, capturedAt) {
-    const last = state.history[state.history.length - 1];
-    if (last && last.prompt === prompt) {
+  // ---------- inbound prompts ----------
+  let lastHandled = "";
+  function handleCaptured(prompt) {
+    if (!prompt) return;
+    if (prompt === lastHandled) {
       LOG("duplicate prompt, ignoring");
       return;
     }
-    const entry = {
-      prompt,
-      capturedAt: capturedAt || Date.now(),
-      data: null,
-      status: "loading",
-    };
-    state.history.push(entry);
-    state.currentIndex = state.history.length - 1;
-    LOG(`added entry ${state.currentIndex + 1}/${state.history.length}`);
-    render();
-    runOrchestrate(entry);
+    lastHandled = prompt;
+    orchestrate(prompt);
   }
 
-  // ---------- incoming messages ----------
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "ECHO_PROMPT_FOR_PANEL" && typeof msg.prompt === "string") {
       LOG("received prompt from bg:", msg.prompt.slice(0, 80));
-      handleCapturedPrompt(msg.prompt, msg.capturedAt);
+      handleCaptured(msg.prompt);
     }
   });
 
-  // On panel open, pick up any prompt captured before the panel existed.
+  // Pick up any pending prompt captured before the panel opened.
   chrome.runtime.sendMessage({ type: "ECHO_GET_LAST_PROMPT" }, (pending) => {
     const err = chrome.runtime.lastError;
     if (err) {
@@ -340,18 +397,13 @@
     }
     if (pending && pending.prompt) {
       const age = Date.now() - (pending.capturedAt || 0);
-      LOG(`found pending prompt (${age}ms old)`);
-      if (age < 30000) {
-        handleCapturedPrompt(pending.prompt, pending.capturedAt);
-      } else {
-        LOG("pending prompt is stale, ignoring");
-      }
+      LOG(`pending prompt age: ${age}ms`);
+      if (age < 30000) handleCaptured(pending.prompt);
+      else LOG("pending prompt stale, ignoring");
     } else {
-      LOG("no pending prompt on init");
+      LOG("no pending prompt");
     }
   });
 
-  // Initial paint (empty state).
-  render();
   LOG("side panel ready");
 })();
