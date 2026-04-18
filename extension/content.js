@@ -54,24 +54,13 @@
 
   let currentComposer = null;
   let lastSent = { prompt: "", at: 0 };
-  let echoEnabled = true;
-
-  // Load persisted on/off state.
-  try {
-    chrome.storage.local.get(["echo.enabled"], (res) => {
-      if (typeof res["echo.enabled"] === "boolean") {
-        echoEnabled = res["echo.enabled"];
-        LOG("echoEnabled loaded:", echoEnabled);
-        updateEchoButtonVisual();
-      }
-    });
-  } catch (_e) {}
+  // Capture is always on. No user-facing off switch — keeps the UX clean
+  // and matches the "Echo is always listening" mental model.
 
   function send(prompt, via) {
-    if (!echoEnabled) {
-      LOG(`capture skipped (Echo OFF) via ${via}`);
-      return;
-    }
+    // Capture is ALWAYS on — the button toggle only controls panel visibility,
+    // never the capture pipeline. Side panel can decide whether to show or
+    // ignore incoming prompts.
     const now = Date.now();
     if (prompt === lastSent.prompt && now - lastSent.at < 3000) {
       LOG(`dedup: already sent "${prompt.slice(0, 40)}..." ${now - lastSent.at}ms ago`);
@@ -188,40 +177,22 @@
   function updateEchoButtonVisual() {
     const btn = document.getElementById(ECHO_BTN_ID);
     if (!btn) return;
-    const ring = btn.querySelector(".echo-btn-ring");
-    const dot = btn.querySelector(".echo-btn-dot");
-    if (echoEnabled) {
-      btn.classList.add("is-on");
-      if (ring) { ring.setAttribute("stroke", "#A855F7"); ring.setAttribute("stroke-opacity", "0.45"); }
-      if (dot) dot.setAttribute("fill", "#A855F7");
-      btn.setAttribute("aria-pressed", "true");
-      btn.title = "Echo is ON — click to pause capture";
-    } else {
-      btn.classList.remove("is-on");
-      if (ring) { ring.setAttribute("stroke", "#6B6B6B"); ring.setAttribute("stroke-opacity", "0.3"); }
-      if (dot) dot.setAttribute("fill", "#2A2A2A");
-      btn.setAttribute("aria-pressed", "false");
-      btn.title = "Echo is OFF — click to resume capture";
-    }
+    // Always ON visual state — Echo is always listening. The button just
+    // opens the side panel (like the toolbar icon).
+    btn.classList.add("is-on");
+    btn.title = "Open Echo — analyze ChatGPT's response with 3 adversarial variants";
   }
 
   function onEchoButtonClick(e) {
     e.preventDefault();
     e.stopPropagation();
-    // Toggle on/off AND open/close the side panel in one gesture.
-    echoEnabled = !echoEnabled;
+    // Mirror the toolbar icon: clicking opens the side panel for this tab.
+    // Capture pipeline runs independently; it's always listening.
+    LOG("composer button clicked — opening side panel");
     try {
-      chrome.storage.local.set({ "echo.enabled": echoEnabled });
-    } catch (_e) {}
-    LOG("Echo toggled to:", echoEnabled ? "ON" : "OFF");
-    updateEchoButtonVisual();
-    try {
-      chrome.runtime.sendMessage({
-        type: "ECHO_TOGGLE_PANEL",
-        enable: echoEnabled,
-      });
+      chrome.runtime.sendMessage({ type: "ECHO_OPEN_PANEL" });
     } catch (err) {
-      LOG("could not toggle panel:", err.message);
+      LOG("could not open panel:", err.message);
     }
   }
 
@@ -298,10 +269,6 @@
     // Dedup: if same text was sent in the last 3s, skip
     if (text === lastAsstSent.text && now - lastAsstSent.at < 3000) return;
     lastAsstSent = { text, at: now };
-    if (!echoEnabled) {
-      LOG("assistant response ready but Echo is OFF — not sending");
-      return;
-    }
     LOG(`assistant response captured (${text.length} chars):`, text.slice(0, 80));
     try {
       chrome.runtime.sendMessage({

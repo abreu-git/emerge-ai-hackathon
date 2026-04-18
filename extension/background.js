@@ -57,40 +57,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the channel open for async response
   }
 
-  if (msg.type === "ECHO_TOGGLE_PANEL") {
+  if (msg.type === "ECHO_OPEN_PANEL") {
     const tabId = sender.tab?.id;
     const windowId = sender.tab?.windowId;
-    const enable = !!msg.enable;
-    LOG(`toggle panel: enable=${enable}, tab=${tabId}, win=${windowId}`);
+    LOG(`open panel: tab=${tabId}, win=${windowId}`);
     if (tabId == null) {
       sendResponse({ ok: false, reason: "no tab id" });
       return;
     }
-    if (enable) {
-      // CRITICAL: open() must be called synchronously on the user-gesture
-      // message to preserve gesture context. Fire setOptions without await.
-      try {
-        chrome.sidePanel.setOptions({
-          tabId,
-          path: "sidebar.html",
-          enabled: true,
-        });
-      } catch (e) {
-        LOG("setOptions(enable) threw:", e.message);
-      }
-      // open() returns a Promise — chain only for logging, don't await.
-      const openP = windowId != null
+    // CRITICAL: open() must be called synchronously in the message handler
+    // to preserve the user-gesture context from the composer click. Do NOT
+    // await setOptions — fire and forget.
+    try {
+      chrome.sidePanel.setOptions({
+        tabId,
+        path: "sidebar.html",
+        enabled: true,
+      });
+    } catch (e) {
+      LOG("setOptions threw:", e.message);
+    }
+    const openP =
+      windowId != null
         ? chrome.sidePanel.open({ tabId, windowId })
         : chrome.sidePanel.open({ tabId });
-      openP
-        .then(() => LOG("sidePanel.open resolved"))
-        .catch((err) => LOG("sidePanel.open rejected:", err.message));
-    } else {
-      chrome.sidePanel
-        .setOptions({ tabId, enabled: false })
-        .then(() => LOG("sidePanel disabled (closed)"))
-        .catch((err) => LOG("sidePanel disable failed:", err.message));
-    }
+    openP
+      .then(() => LOG("sidePanel.open resolved"))
+      .catch((err) => LOG("sidePanel.open rejected:", err.message));
     sendResponse({ ok: true });
     return;
   }
