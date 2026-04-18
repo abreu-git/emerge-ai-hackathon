@@ -3,13 +3,23 @@
 // All UI lives in sidebar.html (native Chrome side panel).
 
 (function () {
+  const LOG = (...args) => console.log("[Echo/content]", ...args);
+
+  // Defensive cleanup: remove any stale DOM left over from the pre-side-panel
+  // version of the extension. Safe to call on every load.
+  for (const id of ["echo-sidebar-root", "echo-toggle-btn"]) {
+    const el = document.getElementById(id);
+    if (el) {
+      LOG("removing stale element:", id);
+      el.remove();
+    }
+  }
+
   if (window.__ECHO_INJECTED__) {
-    console.log("[Echo/content] already injected, skipping");
+    LOG("already injected, skipping handlers");
     return;
   }
   window.__ECHO_INJECTED__ = true;
-
-  const LOG = (...args) => console.log("[Echo/content]", ...args);
 
   function findComposer() {
     const el = document.querySelector(
