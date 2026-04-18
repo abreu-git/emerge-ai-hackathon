@@ -22,8 +22,12 @@
             <div class="echo-subtitle">See the same AI, from every angle.</div>
           </div>
         </div>
-        <button class="echo-close" aria-label="Close">×</button>
+        <div class="echo-header-actions">
+          <button class="echo-min" aria-label="Minimize" title="Minimize">–</button>
+          <button class="echo-close" aria-label="Close" title="Close">×</button>
+        </div>
       </div>
+      <div class="echo-resize-handle" aria-label="Resize"></div>
 
       <div class="echo-empty">
         <div class="echo-empty-ring">
@@ -99,6 +103,121 @@
   }
   toggle.addEventListener("click", openSidebar);
   sidebar.querySelector(".echo-close").addEventListener("click", closeSidebar);
+  sidebar.querySelector(".echo-min").addEventListener("click", closeSidebar);
+
+  // ---------- drag + resize + persistence ----------
+  const STORAGE_KEY = "echo.layout";
+  const DEFAULT_LAYOUT = { left: null, top: 16, width: 420, height: null }; // null = let CSS decide
+
+  function applyLayout(layout) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = Math.min(layout.width ?? 420, vw - 24);
+    const h = layout.height ? Math.min(layout.height, vh - 24) : vh - 32;
+    sidebar.style.width = w + "px";
+    sidebar.style.height = h + "px";
+    if (layout.left == null) {
+      sidebar.style.left = "";
+      sidebar.style.right = "16px";
+    } else {
+      const left = Math.max(8, Math.min(layout.left, vw - w - 8));
+      sidebar.style.left = left + "px";
+      sidebar.style.right = "auto";
+    }
+    const top = Math.max(8, Math.min(layout.top ?? 16, vh - 80));
+    sidebar.style.top = top + "px";
+  }
+
+  function saveLayout() {
+    const rect = sidebar.getBoundingClientRect();
+    const data = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+    try { chrome.storage?.local?.set({ [STORAGE_KEY]: data }); } catch (_e) {}
+  }
+
+  let currentLayout = { ...DEFAULT_LAYOUT };
+  try {
+    chrome.storage?.local?.get([STORAGE_KEY], (res) => {
+      if (res && res[STORAGE_KEY]) {
+        currentLayout = { ...DEFAULT_LAYOUT, ...res[STORAGE_KEY] };
+      }
+      applyLayout(currentLayout);
+    });
+  } catch (_e) {
+    applyLayout(currentLayout);
+  }
+
+  // Drag by header
+  const header = sidebar.querySelector(".echo-header");
+  let drag = null;
+  header.addEventListener("mousedown", (e) => {
+    if (e.target.closest("button")) return; // don't drag from min/close
+    const rect = sidebar.getBoundingClientRect();
+    drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+    sidebar.classList.add("echo-dragging");
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const w = sidebar.offsetWidth, h = sidebar.offsetHeight;
+    const left = Math.max(8, Math.min(e.clientX - drag.dx, vw - w - 8));
+    const top = Math.max(8, Math.min(e.clientY - drag.dy, vh - 40));
+    sidebar.style.left = left + "px";
+    sidebar.style.right = "auto";
+    sidebar.style.top = top + "px";
+  });
+  document.addEventListener("mouseup", () => {
+    if (!drag) return;
+    drag = null;
+    sidebar.classList.remove("echo-dragging");
+    saveLayout();
+  });
+
+  // Resize by bottom-left corner handle (so the handle is away from ChatGPT's composer)
+  const resizeHandle = sidebar.querySelector(".echo-resize-handle");
+  let resize = null;
+  resizeHandle.addEventListener("mousedown", (e) => {
+    const rect = sidebar.getBoundingClientRect();
+    resize = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: rect.width,
+      startH: rect.height,
+      startLeft: rect.left,
+    };
+    sidebar.classList.add("echo-resizing");
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!resize) return;
+    const dx = e.clientX - resize.startX;
+    const dy = e.clientY - resize.startY;
+    const newW = Math.max(300, Math.min(resize.startW - dx, window.innerWidth - 16));
+    const newH = Math.max(320, Math.min(resize.startH + dy, window.innerHeight - 16));
+    const newLeft = Math.max(8, resize.startLeft + dx);
+    sidebar.style.width = newW + "px";
+    sidebar.style.height = newH + "px";
+    sidebar.style.left = newLeft + "px";
+    sidebar.style.right = "auto";
+  });
+  document.addEventListener("mouseup", () => {
+    if (!resize) return;
+    resize = null;
+    sidebar.classList.remove("echo-resizing");
+    saveLayout();
+  });
+
+  window.addEventListener("resize", () => {
+    // Re-clamp into viewport when window changes
+    const rect = sidebar.getBoundingClientRect();
+    applyLayout({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+  });
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "ECHO_TOGGLE_SIDEBAR") {

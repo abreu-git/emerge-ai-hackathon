@@ -58,9 +58,11 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  width: 420px;
-  max-width: calc(100vw - 32px);
+  width: 380px;
+  min-width: 300px;
+  max-width: calc(100vw - 16px);
   height: calc(100vh - 32px);
+  min-height: 320px;
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
@@ -71,6 +73,12 @@
   overflow: hidden;
   transition: transform 220ms ease, opacity 220ms ease;
 }
+#echo-sidebar-root.echo-dragging,
+#echo-sidebar-root.echo-resizing {
+  transition: none;
+  user-select: none;
+}
+#echo-sidebar-root.echo-dragging * { cursor: grabbing !important; }
 #echo-sidebar-root.echo-hidden {
   transform: translateX(calc(100% + 24px));
   opacity: 0;
@@ -87,9 +95,50 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px 14px;
+  padding: 14px 18px 12px;
   border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: grab;
+  user-select: none;
 }
+.echo-header:active { cursor: grabbing; }
+.echo-header-actions {
+  display: flex;
+  gap: 4px;
+}
+.echo-min {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(245,243,255,0.65);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 4px 0;
+  transition: background 160ms ease, color 160ms ease;
+}
+.echo-min:hover {
+  background: rgba(124,58,237,0.2);
+  color: #F5F3FF;
+}
+/* Bottom-left resize handle (away from ChatGPT composer) */
+.echo-resize-handle {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nesw-resize;
+  z-index: 3;
+  background:
+    linear-gradient(45deg, transparent 40%, rgba(217,70,239,0.6) 40%, rgba(217,70,239,0.6) 55%, transparent 55%, transparent 70%, rgba(217,70,239,0.6) 70%, rgba(217,70,239,0.6) 85%, transparent 85%);
+  border-bottom-left-radius: 20px;
+  opacity: 0.7;
+  transition: opacity 160ms ease;
+}
+.echo-resize-handle:hover { opacity: 1; }
 .echo-brand {
   display: flex;
   align-items: center;
