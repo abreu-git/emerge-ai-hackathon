@@ -23,6 +23,18 @@ chrome.runtime.onInstalled.addListener(() => {
 //  - listening to ECHO_PANEL_CLOSING from the panel's pagehide/unload
 const panelOpenState = new Map(); // tabId -> boolean
 
+function notifyPanelState(tabId, isOpen) {
+  chrome.tabs.sendMessage(
+    tabId,
+    { type: "ECHO_PANEL_STATE", isOpen },
+    () => {
+      // Silently swallow "no receiving end" if the tab isn't ChatGPT.
+      const err = chrome.runtime.lastError;
+      if (err) LOG(`panel state msg not delivered (harmless): ${err.message}`);
+    }
+  );
+}
+
 function openPanelForTab(tab) {
   if (!tab?.id) return;
   try {
@@ -39,6 +51,7 @@ function openPanelForTab(tab) {
     .then(() => {
       panelOpenState.set(tab.id, true);
       LOG("panel opened, state=true for tab", tab.id);
+      notifyPanelState(tab.id, true);
     })
     .catch((e) => LOG("panel open failed:", e.message));
 
@@ -57,6 +70,7 @@ function closePanelForTab(tabId) {
     .then(() => {
       panelOpenState.set(tabId, false);
       LOG("panel closed, state=false for tab", tabId);
+      notifyPanelState(tabId, false);
     })
     .catch((e) => LOG("panel close failed:", e.message));
 }
@@ -144,6 +158,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (active?.id) {
         panelOpenState.set(active.id, false);
         LOG(`panel closing signal — state=false for tab ${active.id}`);
+        notifyPanelState(active.id, false);
       }
     });
     sendResponse({ ok: true });

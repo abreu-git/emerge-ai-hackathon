@@ -54,8 +54,10 @@
 
   let currentComposer = null;
   let lastSent = { prompt: "", at: 0 };
-  // Capture is always on. No user-facing off switch — keeps the UX clean
-  // and matches the "Echo is always listening" mental model.
+  // Capture is always on. `isPanelOpen` only controls the button visual —
+  // background pushes this via ECHO_PANEL_STATE whenever the side panel
+  // opens/closes (either from our clicks or user hitting the X).
+  let isPanelOpen = false;
 
   function send(prompt, via) {
     // Capture is ALWAYS on — the button toggle only controls panel visibility,
@@ -177,10 +179,27 @@
   function updateEchoButtonVisual() {
     const btn = document.getElementById(ECHO_BTN_ID);
     if (!btn) return;
-    // Always ON visual state — Echo is always listening. The button just
-    // opens the side panel (like the toolbar icon).
-    btn.classList.add("is-on");
-    btn.title = "Open Echo — analyze ChatGPT's response with 3 adversarial variants";
+    const ring = btn.querySelector(".echo-btn-ring");
+    const dot = btn.querySelector(".echo-btn-dot");
+    if (isPanelOpen) {
+      btn.classList.add("is-on");
+      if (ring) {
+        ring.setAttribute("stroke", "#A855F7");
+        ring.setAttribute("stroke-opacity", "0.45");
+      }
+      if (dot) dot.setAttribute("fill", "#A855F7");
+      btn.setAttribute("aria-pressed", "true");
+      btn.title = "Echo panel open — click to close";
+    } else {
+      btn.classList.remove("is-on");
+      if (ring) {
+        ring.setAttribute("stroke", "#2A2A2A");
+        ring.setAttribute("stroke-opacity", "0.4");
+      }
+      if (dot) dot.setAttribute("fill", "#2A2A2A");
+      btn.setAttribute("aria-pressed", "false");
+      btn.title = "Click to open Echo — analyze ChatGPT's response";
+    }
   }
 
   function onEchoButtonClick(e) {
@@ -348,6 +367,13 @@
         sendResponse({ ok: false, error: e.message });
       }
       return true;
+    }
+    if (msg.type === "ECHO_PANEL_STATE") {
+      isPanelOpen = !!msg.isOpen;
+      LOG("panel state from bg:", isPanelOpen ? "OPEN" : "CLOSED");
+      updateEchoButtonVisual();
+      sendResponse({ ok: true });
+      return;
     }
   });
 
