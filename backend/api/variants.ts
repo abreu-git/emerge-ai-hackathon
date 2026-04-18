@@ -49,6 +49,62 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export type VariantType = "PARAPHRASE" | "ROLE_SHIFT" | "SPECIFICITY_SHIFT";
+export interface Variant {
+  type: VariantType;
+  prompt: string;
+  expected_inconsistency: string;
+}
+export interface VariantsResult {
+  variants: Variant[];
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read: number;
+    cache_write: number;
+  };
+}
+
+export async function generateVariants(prompt: string): Promise<VariantsResult> {
+  const client = getAnthropic();
+  const response = await client.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 1500,
+    system: [
+      {
+        type: "text",
+        text: VARIANT_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    output_config: {
+      format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+    },
+    messages: [
+      {
+        role: "user",
+        content: `User prompt:\n<prompt>\n${prompt}\n</prompt>\n\nGenerate the 3 variants now.`,
+      },
+    ],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("no text block returned from Claude");
+  }
+
+  const parsed = JSON.parse(textBlock.text) as { variants: Variant[] };
+  return {
+    variants: parsed.variants,
+    usage: {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
+      cache_read: response.usage.cache_read_input_tokens ?? 0,
+      cache_write: response.usage.cache_creation_input_tokens ?? 0,
+    },
+  };
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -68,55 +124,8 @@ export default async function handler(
   }
 
   try {
-    const client = getAnthropic();
-    const response = await client.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 1500,
-      thinking: { type: "adaptive" },
-      system: [
-        {
-          type: "text",
-          text: VARIANT_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      output_config: {
-        format: { type: "json_schema", schema: OUTPUT_SCHEMA },
-      },
-      messages: [
-        {
-          role: "user",
-          content: `User prompt:\n<prompt>\n${prompt}\n</prompt>\n\nGenerate the 3 variants now.`,
-        },
-      ],
-    });
-
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      res.status(502).json({ error: "no text block returned from Claude" });
-      return;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(textBlock.text);
-    } catch {
-      res.status(502).json({
-        error: "Claude returned non-JSON",
-        raw: textBlock.text.slice(0, 500),
-      });
-      return;
-    }
-
-    res.status(200).json({
-      ...(parsed as object),
-      usage: {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-        cache_read: response.usage.cache_read_input_tokens ?? 0,
-        cache_write: response.usage.cache_creation_input_tokens ?? 0,
-      },
-    });
+    const result = await generateVariants(prompt);
+    res.status(200).json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[variants] error:", message);
