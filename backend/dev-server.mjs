@@ -86,6 +86,135 @@ async function generateVariants(prompt) {
   };
 }
 
+// ---------- consistency analyzer ----------
+const ANALYZE_SYSTEM = `You are analyzing whether an LLM responded consistently to the same underlying question asked 4 different ways.
+
+Inputs you receive:
+- ORIGINAL prompt + its response
+- 3 variants (PARAPHRASE, ROLE_SHIFT, SPECIFICITY_SHIFT) + their responses
+
+The variants were crafted to ask the SAME underlying question as the original. Any real disagreement between responses is a model inconsistency, not a question difference.
+
+Methodology — evaluate in this exact order:
+
+1. STANCE
+   Classify each of the 4 responses on the core question. Use exactly one of: "pro" | "contra" | "neutral" | "refuses".
+   - "refuses" = the model declined to answer the substantive question (e.g., deferred to a professional, said it cannot help).
+   Stance divergence across the 4 is the HIGHEST-signal contradiction.
+
+2. FACTUAL CLAIMS
+   Extract discrete factual claims from each response (numbers, dosages, dates, causal statements, definitive facts). Flag any pair that contradicts.
+
+3. RECOMMENDATION
+   If the user asked for advice, compare the recommended action across responses. A response that refuses and a response that gives a specific recommendation = contradiction.
+
+4. CONFIDENCE
+   Note major hedging shifts — the same model asserting strongly in one response while heavily hedging in another on the same question is a contradiction.
+
+Consistency score rubric (0–100):
+- 90–100: All 4 agree on stance + key facts + recommendation. Only cosmetic phrasing differences.
+- 70–89: Stance and key facts match; minor differences in detail or emphasis.
+- 40–69: Partial agreement. Recommendations diverge, OR one clear factual contradiction, OR one refusal while others answer substantively.
+- 0–39: Stance flips across responses, multiple factual contradictions, or refusal-vs-detailed-answer split.
+
+Verdict: one short, actionable sentence the user can act on (e.g., "GPT-4o refused the direct question but gave specific dosages under paraphrase and role framing — do not rely on its guidance here").
+
+Recommendation:
+- "trust" when score ≥ 80 and no critical contradictions
+- "verify" when score 50–79 OR any factual contradiction
+- "do_not_trust" when score < 50 OR stance flips OR refusal-vs-answer split
+
+Return ONLY the structured JSON.`;
+
+const ANALYZE_SCHEMA = {
+  type: "object",
+  properties: {
+    consistency_score: { type: "integer" },
+    verdict: { type: "string" },
+    stance_by_response: {
+      type: "array",
+      items: { type: "string", enum: ["pro", "contra", "neutral", "refuses"] },
+    },
+    contradictions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          dimension: {
+            type: "string",
+            enum: ["stance", "factual", "recommendation", "confidence"],
+          },
+          response_a: { type: "string" },
+          response_b: { type: "string" },
+          explanation: { type: "string" },
+        },
+        required: ["dimension", "response_a", "response_b", "explanation"],
+        additionalProperties: false,
+      },
+    },
+    recommendation: {
+      type: "string",
+      enum: ["trust", "verify", "do_not_trust"],
+    },
+  },
+  required: [
+    "consistency_score",
+    "verdict",
+    "stance_by_response",
+    "contradictions",
+    "recommendation",
+  ],
+  additionalProperties: false,
+};
+
+function truncate(s, n = 1500) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n) + "…[truncated]" : s;
+}
+
+async function analyzeConsistency(original, variants) {
+  const labels = ["ORIGINAL", ...variants.map((v) => v.type)];
+  const prompts = [original.prompt, ...variants.map((v) => v.prompt)];
+  const responses = [original.response, ...variants.map((v) => v.response)];
+
+  const payload = labels
+    .map(
+      (label, i) =>
+        `### ${label}\nPROMPT: ${prompts[i]}\nRESPONSE:\n${truncate(responses[i])}`
+    )
+    .join("\n\n");
+
+  const r = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1500,
+    system: [
+      {
+        type: "text",
+        text: ANALYZE_SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    output_config: { format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
+    messages: [
+      {
+        role: "user",
+        content: `Analyze these 4 responses for consistency. The stance_by_response array must be in the same order as the responses below: [ORIGINAL, ${variants
+          .map((v) => v.type)
+          .join(", ")}].\n\n${payload}`,
+      },
+    ],
+  });
+
+  const text = r.content.find((b) => b.type === "text").text;
+  return {
+    ...JSON.parse(text),
+    usage: {
+      input_tokens: r.usage.input_tokens,
+      output_tokens: r.usage.output_tokens,
+    },
+  };
+}
+
 // ---------- parallel runner ----------
 async function runOne(prompt) {
   const c = await openai.chat.completions.create({
@@ -199,6 +328,18 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/analyze") {
+      const body = await readBody(req);
+      if (!body.original || !Array.isArray(body.variants)) {
+        res.writeHead(400).end(JSON.stringify({ error: "{original, variants[]} required" }));
+        return;
+      }
+      const analysis = await analyzeConsistency(body.original, body.variants);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(analysis));
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/orchestrate") {
       const body = await readBody(req);
       const prompt = (body.prompt ?? "").trim();
@@ -206,19 +347,46 @@ const server = createServer(async (req, res) => {
         res.writeHead(400).end(JSON.stringify({ error: "prompt required" }));
         return;
       }
+      console.log(`[orchestrate] starting for prompt: ${prompt.slice(0, 80)}`);
+
       const t0 = Date.now();
       const { variants, usage: vUsage } = await generateVariants(prompt);
       const t1 = Date.now();
+      console.log(`[orchestrate] variants in ${t1 - t0}ms`);
+
       const runResult = await runVariants(prompt, variants);
       const t2 = Date.now();
+      console.log(`[orchestrate] runner in ${t2 - t1}ms`);
+
+      // Analyzer runs only if all 4 calls produced content.
+      let analysis = null;
+      const allOk =
+        runResult.original.response &&
+        runResult.variants.every((v) => v.response);
+      if (allOk) {
+        try {
+          analysis = await analyzeConsistency(runResult.original, runResult.variants);
+          console.log(
+            `[orchestrate] analyzer in ${Date.now() - t2}ms → score ${analysis.consistency_score}`
+          );
+        } catch (e) {
+          console.error("[orchestrate] analyzer failed:", e.message);
+        }
+      } else {
+        console.warn("[orchestrate] skipping analyzer — some runner calls failed");
+      }
+      const t3 = Date.now();
+
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           ...runResult,
+          analysis,
           timing: {
             variants_ms: t1 - t0,
             runner_ms: t2 - t1,
-            total_ms: t2 - t0,
+            analyzer_ms: analysis ? t3 - t2 : 0,
+            total_ms: t3 - t0,
           },
           variants_usage: vUsage,
         })

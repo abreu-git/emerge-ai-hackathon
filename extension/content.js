@@ -3,18 +3,40 @@
 // All UI lives in sidebar.html (native Chrome side panel).
 
 (function () {
-  if (window.__ECHO_INJECTED__) return;
+  if (window.__ECHO_INJECTED__) {
+    console.log("[Echo/content] already injected, skipping");
+    return;
+  }
   window.__ECHO_INJECTED__ = true;
 
+  const LOG = (...args) => console.log("[Echo/content]", ...args);
+
   function findComposer() {
-    return document.querySelector(
+    const el = document.querySelector(
       'form textarea, form [contenteditable="true"]'
     );
+    if (!el) LOG("composer not found");
+    return el;
   }
 
   function captureFromElement(el) {
     if (!el) return "";
     return (el.innerText || el.value || "").trim();
+  }
+
+  function send(prompt, via) {
+    LOG(`captured via ${via} (${prompt.length} chars):`, prompt.slice(0, 80));
+    try {
+      chrome.runtime.sendMessage({ type: "ECHO_PROMPT_CAPTURED", prompt }, (ack) => {
+        if (chrome.runtime.lastError) {
+          LOG("sendMessage error:", chrome.runtime.lastError.message);
+        } else {
+          LOG("background ack:", ack);
+        }
+      });
+    } catch (e) {
+      LOG("sendMessage threw:", e.message);
+    }
   }
 
   // Capture on Enter (without Shift) — matches ChatGPT's submit behavior.
@@ -23,17 +45,16 @@
     (e) => {
       if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
       const composer = findComposer();
-      if (!composer || !composer.contains(e.target)) return;
+      if (!composer) return;
+      // Check if event target is inside the composer (for contenteditable)
+      // or IS the composer (for textarea).
+      const targetIsComposer =
+        e.target === composer ||
+        (composer.contains && composer.contains(e.target));
+      if (!targetIsComposer) return;
       const prompt = captureFromElement(composer);
       if (!prompt) return;
-      try {
-        chrome.runtime.sendMessage({
-          type: "ECHO_PROMPT_CAPTURED",
-          prompt,
-        });
-      } catch (_e) {
-        // Extension context may be invalidated on reload — ignore.
-      }
+      send(prompt, "Enter key");
     },
     true
   );
@@ -44,20 +65,17 @@
     (e) => {
       const target = e.target;
       if (!(target instanceof Element)) return;
-      const btn = target.closest('button[data-testid="send-button"], form button[type="submit"]');
+      const btn = target.closest(
+        'button[data-testid="send-button"], button[aria-label*="end" i], form button[type="submit"]'
+      );
       if (!btn) return;
       const composer = findComposer();
       const prompt = captureFromElement(composer);
       if (!prompt) return;
-      try {
-        chrome.runtime.sendMessage({
-          type: "ECHO_PROMPT_CAPTURED",
-          prompt,
-        });
-      } catch (_e) {}
+      send(prompt, "send button");
     },
     true
   );
 
-  console.log("[Echo] content script ready");
+  LOG("content script ready on", location.hostname);
 })();

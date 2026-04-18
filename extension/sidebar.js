@@ -4,6 +4,8 @@
 
 (function () {
   const API_BASE = self.ECHO_API_BASE || "http://localhost:3939";
+  const LOG = (...args) => console.log("[Echo/panel]", ...args);
+  LOG("loading, API_BASE =", API_BASE);
 
   const empty = document.getElementById("echo-empty");
   const body = document.getElementById("echo-body");
@@ -59,35 +61,106 @@
     promptBox.textContent = text;
   }
 
-  function renderResponses(original, variants) {
+  const STANCE_COLORS = {
+    pro: "#10B981",
+    contra: "#EF4444",
+    neutral: "#94A3B8",
+    refuses: "#F59E0B",
+  };
+
+  function renderResponses(original, variants, stanceByResponse) {
     respList.innerHTML = "";
-    const addCard = (label, promptText, responseText, errorText) => {
+    const labels = ["ORIGINAL", ...variants.map((v) => v.type)];
+    const all = [original, ...variants];
+
+    all.forEach((r, i) => {
       const card = document.createElement("div");
       card.className = "echo-resp-card";
+
+      const header = document.createElement("div");
+      header.style.display = "flex";
+      header.style.justifyContent = "space-between";
+      header.style.alignItems = "center";
+      header.style.marginBottom = "4px";
+
       const lab = document.createElement("div");
       lab.className = "echo-resp-label";
-      lab.textContent = label;
-      card.appendChild(lab);
-      if (promptText) {
+      lab.textContent = labels[i];
+      header.appendChild(lab);
+
+      if (stanceByResponse && stanceByResponse[i]) {
+        const stance = stanceByResponse[i];
+        const chip = document.createElement("span");
+        chip.textContent = stance;
+        chip.style.fontSize = "10px";
+        chip.style.fontWeight = "600";
+        chip.style.padding = "2px 8px";
+        chip.style.borderRadius = "999px";
+        chip.style.background = (STANCE_COLORS[stance] || "#64748B") + "33";
+        chip.style.color = STANCE_COLORS[stance] || "#94A3B8";
+        chip.style.textTransform = "uppercase";
+        chip.style.letterSpacing = "0.08em";
+        header.appendChild(chip);
+      }
+      card.appendChild(header);
+
+      if (r.prompt) {
         const pr = document.createElement("div");
         pr.className = "echo-resp-prompt";
-        pr.textContent = promptText;
+        pr.textContent = r.prompt;
         card.appendChild(pr);
       }
       const rt = document.createElement("div");
       rt.className = "echo-resp-text";
-      if (errorText) {
-        rt.textContent = `⚠ ${errorText}`;
+      if (r.error) {
+        rt.textContent = `⚠ ${r.error}`;
         rt.style.color = "rgba(239, 68, 68, 0.9)";
       } else {
-        rt.textContent = responseText || "(empty)";
+        rt.textContent = r.response || "(empty)";
       }
       card.appendChild(rt);
       respList.appendChild(card);
-    };
-    addCard("ORIGINAL", original.prompt, original.response, original.error);
-    for (const v of variants) {
-      addCard(v.type, v.prompt, v.response, v.error);
+    });
+  }
+
+  function renderContradictions(contradictions) {
+    contrList.innerHTML = "";
+    if (!contradictions || contradictions.length === 0) {
+      const p = document.createElement("div");
+      p.className = "echo-resp-text";
+      p.style.opacity = "0.7";
+      p.textContent = "No contradictions detected.";
+      contrList.appendChild(p);
+      return;
+    }
+    for (const c of contradictions) {
+      const card = document.createElement("div");
+      card.className = "echo-resp-card";
+      const lab = document.createElement("div");
+      lab.className = "echo-resp-label";
+      lab.textContent = c.dimension || "contradiction";
+      card.appendChild(lab);
+
+      const a = document.createElement("div");
+      a.className = "echo-resp-text";
+      a.textContent = `A: ${c.response_a || ""}`;
+      card.appendChild(a);
+
+      const b = document.createElement("div");
+      b.className = "echo-resp-text";
+      b.style.marginTop = "6px";
+      b.textContent = `B: ${c.response_b || ""}`;
+      card.appendChild(b);
+
+      if (c.explanation) {
+        const expl = document.createElement("div");
+        expl.className = "echo-resp-prompt";
+        expl.style.marginTop = "8px";
+        expl.style.fontStyle = "normal";
+        expl.textContent = c.explanation;
+        card.appendChild(expl);
+      }
+      contrList.appendChild(card);
     }
   }
 
@@ -96,14 +169,23 @@
     const p = document.createElement("div");
     p.className = "echo-resp-text";
     p.style.opacity = "0.6";
-    p.textContent =
-      message || "Consistency analyzer not wired yet (block 4).";
+    p.textContent = message || "Analyzing…";
     contrList.appendChild(p);
   }
 
   // ---------- backend call ----------
-  async function orchestrate(prompt) {
+  let lastHandledPromptKey = null;
+
+  async function orchestrate(prompt, capturedAt) {
+    const key = `${capturedAt || Date.now()}::${prompt}`;
+    if (key === lastHandledPromptKey) {
+      LOG("skipping duplicate prompt");
+      return;
+    }
+    lastHandledPromptKey = key;
+
     const started = Date.now();
+    LOG("orchestrate start:", prompt.slice(0, 80));
     showBody();
     setPrompt(prompt);
     setScore(null, "Running…");
@@ -117,18 +199,31 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
+      LOG("orchestrate HTTP", response.status);
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`${response.status}: ${text.slice(0, 300)}`);
       }
       const data = await response.json();
+      LOG("orchestrate data:", data);
 
-      renderResponses(data.original, data.variants);
-      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      setScore(null, `Ran 4 in parallel in ${elapsed}s. Analyzer pending.`);
+      const stances = data.analysis?.stance_by_response || null;
+      renderResponses(data.original, data.variants, stances);
+
+      if (data.analysis) {
+        setScore(
+          data.analysis.consistency_score,
+          data.analysis.verdict || "analyzed"
+        );
+        renderContradictions(data.analysis.contradictions);
+      } else {
+        const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+        setScore(null, `Ran 4 in parallel in ${elapsed}s. Analyzer skipped.`);
+        renderContradictions([]);
+      }
       setStatus("ready");
     } catch (err) {
-      console.error("[Echo] orchestrate failed:", err);
+      console.error("[Echo/panel] orchestrate failed:", err);
       setStatus("error", "is-error");
       setScore(null, "Backend unreachable.");
       respList.innerHTML = "";
@@ -136,22 +231,46 @@
       card.className = "echo-resp-card";
       card.innerHTML = `
         <div class="echo-resp-label" style="color: rgba(239,68,68,0.9)">Backend error</div>
-        <div class="echo-resp-text">${String(err.message ?? err)}</div>
+        <div class="echo-resp-text"></div>
         <div class="echo-resp-prompt" style="margin-top:10px; font-style:normal">
           Is the dev server running?<br>
           <code>cd backend && node dev-server.mjs</code>
         </div>
       `;
+      card.querySelector(".echo-resp-text").textContent = String(err.message ?? err);
       respList.appendChild(card);
     }
   }
 
+  // Listen for prompts broadcast from the background.
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "ECHO_PROMPT_FOR_PANEL" && typeof msg.prompt === "string") {
-      orchestrate(msg.prompt);
+      LOG("received prompt from bg:", msg.prompt.slice(0, 80));
+      orchestrate(msg.prompt, msg.capturedAt);
     }
   });
 
-  console.log("[Echo] side panel ready, API:", API_BASE);
+  // On load, check if a prompt was captured before the panel was open.
+  chrome.runtime.sendMessage({ type: "ECHO_GET_LAST_PROMPT" }, (pending) => {
+    const err = chrome.runtime.lastError;
+    if (err) {
+      LOG("could not fetch pending prompt:", err.message);
+      return;
+    }
+    if (pending && pending.prompt) {
+      const age = Date.now() - (pending.capturedAt || 0);
+      LOG(`found pending prompt (${age}ms old)`);
+      // Only auto-run if very recent (under 30s); older ones are stale.
+      if (age < 30000) {
+        orchestrate(pending.prompt, pending.capturedAt);
+      } else {
+        LOG("pending prompt is stale, ignoring");
+      }
+    } else {
+      LOG("no pending prompt on init");
+    }
+  });
+
+  LOG("side panel ready");
 })();
