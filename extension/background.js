@@ -57,6 +57,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the channel open for async response
   }
 
+  if (msg.type === "ECHO_TOGGLE_PANEL") {
+    const tabId = sender.tab?.id;
+    const enable = !!msg.enable;
+    LOG(`toggle panel: enable=${enable}, tab=${tabId}`);
+    if (tabId == null) {
+      sendResponse({ ok: false, reason: "no tab id" });
+      return;
+    }
+    if (enable) {
+      // Re-register + open the panel for this tab.
+      chrome.sidePanel
+        .setOptions({ tabId, path: "sidebar.html", enabled: true })
+        .then(() => chrome.sidePanel.open({ tabId }))
+        .then(() => LOG("sidePanel opened"))
+        .catch((err) => LOG("sidePanel.open failed:", err.message));
+    } else {
+      // Disabling removes the panel registration for this tab, which Chrome
+      // treats as closing it. Re-enabled next time the user clicks ON.
+      chrome.sidePanel
+        .setOptions({ tabId, enabled: false })
+        .then(() => LOG("sidePanel disabled (closed)"))
+        .catch((err) => LOG("sidePanel disable failed:", err.message));
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.type === "ECHO_ASSISTANT_RESPONSE") {
     const response = String(msg.response || "");
     LOG(`assistant response relayed (${response.length} chars)`);

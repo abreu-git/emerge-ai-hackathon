@@ -208,13 +208,21 @@
   function onEchoButtonClick(e) {
     e.preventDefault();
     e.stopPropagation();
-    // Toggle on/off.
+    // Toggle on/off AND open/close the side panel in one gesture.
     echoEnabled = !echoEnabled;
     try {
       chrome.storage.local.set({ "echo.enabled": echoEnabled });
     } catch (_e) {}
     LOG("Echo toggled to:", echoEnabled ? "ON" : "OFF");
     updateEchoButtonVisual();
+    try {
+      chrome.runtime.sendMessage({
+        type: "ECHO_TOGGLE_PANEL",
+        enable: echoEnabled,
+      });
+    } catch (err) {
+      LOG("could not toggle panel:", err.message);
+    }
   }
 
   // MutationObserver — ChatGPT is an SPA; the composer and its action row
