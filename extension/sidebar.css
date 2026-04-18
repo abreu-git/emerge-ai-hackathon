@@ -168,46 +168,10 @@ button:focus-visible {
   background: var(--color-bg-app);
 }
 
-/* ---------- Header ---------- */
-.echo-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-4) var(--space-3);
-  border-bottom: 1px solid var(--color-border-hair);
-  flex-shrink: 0;
-  background: var(--color-bg-surface);
-}
-.echo-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.echo-logo-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
-  animation: echo-breathe 2.4s ease-in-out infinite;
-}
+/* Breathing keyframe — reused by the empty-state mark. */
 @keyframes echo-breathe {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(0.85); }
-}
-.echo-title {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  color: var(--color-text);
-}
-.echo-subtitle {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--color-text-subtle);
-  margin-top: 2px;
-  font-weight: 400;
 }
 
 /* ---------- Prompt card (captured prompt) ---------- */
