@@ -114,7 +114,7 @@
         margin-left: -10px;
         margin-top: -10px;
         border-radius: 50%;
-        border: 1.5px solid #A855F7;
+        border: 1.5px solid #7C3AED;
         pointer-events: none;
         opacity: 0;
         transform-origin: center;
@@ -160,8 +160,8 @@
     btn.innerHTML = `
       <span class="echo-logo-wrap">
         <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-          <circle class="echo-btn-ring" cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
-          <circle class="echo-btn-dot" cx="10" cy="10" r="4" fill="#A855F7"/>
+          <circle class="echo-btn-ring" cx="10" cy="10" r="7.5" fill="none" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1"/>
+          <circle class="echo-btn-dot" cx="10" cy="10" r="4" fill="#7C3AED"/>
         </svg>
         <span class="echo-pulse-ring" aria-hidden="true"></span>
         <span class="echo-pulse-ring is-second" aria-hidden="true"></span>
@@ -184,10 +184,10 @@
     if (isPanelOpen) {
       btn.classList.add("is-on");
       if (ring) {
-        ring.setAttribute("stroke", "#A855F7");
+        ring.setAttribute("stroke", "#7C3AED");
         ring.setAttribute("stroke-opacity", "0.45");
       }
-      if (dot) dot.setAttribute("fill", "#A855F7");
+      if (dot) dot.setAttribute("fill", "#7C3AED");
       btn.setAttribute("aria-pressed", "true");
       btn.title = "Echo panel open — click to close";
     } else {

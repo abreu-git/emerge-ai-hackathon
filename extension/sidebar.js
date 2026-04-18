@@ -26,6 +26,7 @@
   const drawerRec = document.getElementById("echo-drawer-recommendation");
   const drawerStances = document.getElementById("echo-drawer-stances");
   const drawerContradictions = document.getElementById("echo-drawer-contradictions");
+  const drawerContrCount = document.getElementById("echo-drawer-contr-count");
 
   // ---------- state ----------
   // entries: [{ label, prompt, response, error, stance, status, expected_inconsistency }]
@@ -69,11 +70,27 @@
     footerBar.hidden = true;
     footerScore.textContent = "—";
     footerScore.classList.remove("is-high", "is-mid", "is-low");
-    footerFill.style.width = "0%";
+    // Fill uses transform: scaleX() now (smoother than width animation).
+    footerFill.style.transform = "scaleX(0)";
     footerFill.classList.remove("is-high", "is-mid", "is-low");
     drawer.classList.remove("is-open");
     drawer.hidden = true;
     drawer.setAttribute("aria-hidden", "true");
+  }
+
+  // Animate an integer from 0 to `to` over `duration` ms, writing to el.textContent.
+  // Uses requestAnimationFrame + the ease-out portion of the curve.
+  function animateCount(el, to, duration = 600) {
+    const start = performance.now();
+    const from = 0;
+    function frame(now) {
+      const t = Math.min(1, (now - start) / duration);
+      // ease-out quint — matches --ease feel
+      const eased = 1 - Math.pow(1 - t, 5);
+      el.textContent = String(Math.round(from + (to - from) * eased));
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
   }
 
   // ---------- accordion rendering ----------
@@ -145,7 +162,7 @@
         const toggle = document.createElement("button");
         toggle.className = "echo-card-toggle";
         toggle.type = "button";
-        toggle.textContent = isExpanded ? "Show less ▲" : "See more ▼";
+        toggle.textContent = isExpanded ? "Show less" : "Read more";
         toggle.addEventListener("click", () => {
           state.expandedIndex = isExpanded ? -1 : i;
           renderCards();
@@ -164,16 +181,23 @@
       return;
     }
     footerBar.hidden = false;
-    const score = analysis.consistency_score;
+    const score = Math.max(0, Math.min(100, analysis.consistency_score));
     const cls = scoreClass(score);
 
-    footerScore.textContent = String(score);
+    // Color ramps immediately; number counts up for the reveal moment.
     footerScore.classList.remove("is-high", "is-mid", "is-low");
     if (cls) footerScore.classList.add(cls);
+    animateCount(footerScore, score, 700);
 
-    footerFill.style.width = `${Math.max(0, Math.min(100, score))}%`;
+    // Smooth scale transform (set in clearAll to 0) — animates via CSS.
+    // Using a 2-frame delay so the browser picks up the transition.
     footerFill.classList.remove("is-high", "is-mid", "is-low");
     if (cls) footerFill.classList.add(cls);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        footerFill.style.transform = `scaleX(${score / 100})`;
+      });
+    });
   }
 
   // ---------- report drawer ----------
@@ -182,37 +206,59 @@
     const a = state.analysis;
     const cls = scoreClass(a.consistency_score);
 
-    drawerScore.textContent = String(a.consistency_score);
+    // Score — big mono display, colored by range.
     drawerScore.classList.remove("is-high", "is-mid", "is-low");
     if (cls) drawerScore.classList.add(cls);
+    drawerScore.textContent = String(a.consistency_score);
+
+    // Recommendation pill — inline with score (trust / verify / do_not_trust).
+    drawerRec.classList.remove("rec-trust", "rec-verify", "rec-do_not_trust");
+    if (a.recommendation) {
+      drawerRec.hidden = false;
+      drawerRec.textContent = (a.recommendation || "").replace(/_/g, " ");
+      drawerRec.classList.add(`rec-${a.recommendation}`);
+    } else {
+      drawerRec.hidden = true;
+    }
 
     drawerVerdict.textContent = a.verdict || "";
 
-    drawerRec.textContent = (a.recommendation || "").replace(/_/g, " ");
-    drawerRec.classList.remove("rec-trust", "rec-verify", "rec-do_not_trust");
-    if (a.recommendation) drawerRec.classList.add(`rec-${a.recommendation}`);
-
-    // Stances (same order as entries)
+    // Stance rows — entry name + dot + stance chip.
+    const stanceColor = {
+      pro: "var(--color-success)",
+      contra: "var(--color-danger)",
+      neutral: "var(--color-text-faint)",
+      refuses: "var(--color-warning)",
+    };
     drawerStances.innerHTML = "";
     const stances = a.stance_by_response || [];
     state.entries.forEach((entry, i) => {
       const row = document.createElement("div");
       row.className = "echo-drawer-stance-row";
-      const lab = document.createElement("span");
-      lab.className = "echo-drawer-stance-label";
-      lab.textContent = entry.label;
+
+      const name = document.createElement("span");
+      name.className = "echo-drawer-stance-name";
+      const dot = document.createElement("span");
+      dot.className = "echo-drawer-stance-dot";
+      const stance = stances[i] || entry.stance || "neutral";
+      dot.style.background = stanceColor[stance] || stanceColor.neutral;
+      name.appendChild(dot);
+      name.appendChild(document.createTextNode(entry.label));
+      row.appendChild(name);
+
       const chip = document.createElement("span");
-      const stance = stances[i] || entry.stance || "—";
       chip.className = `echo-stance stance-${stance}`;
       chip.textContent = stance;
-      row.appendChild(lab);
       row.appendChild(chip);
+
       drawerStances.appendChild(row);
     });
 
-    // Contradictions
+    // Contradictions — clash layout "A ↔ B" + explanation below.
     drawerContradictions.innerHTML = "";
     const contrs = a.contradictions || [];
+    drawerContrCount.textContent = contrs.length ? `· ${contrs.length}` : "";
+
     if (contrs.length === 0) {
       const empty = document.createElement("div");
       empty.className = "echo-drawer-empty";
@@ -228,15 +274,21 @@
         dim.textContent = c.dimension || "contradiction";
         card.appendChild(dim);
 
-        const a1 = document.createElement("div");
-        a1.className = "echo-drawer-contr-sample";
-        a1.textContent = `A: ${c.response_a || ""}`;
-        card.appendChild(a1);
-
-        const b1 = document.createElement("div");
-        b1.className = "echo-drawer-contr-sample";
-        b1.textContent = `B: ${c.response_b || ""}`;
-        card.appendChild(b1);
+        const clash = document.createElement("div");
+        clash.className = "echo-drawer-contr-clash";
+        const sideA = document.createElement("div");
+        sideA.className = "echo-drawer-contr-side";
+        sideA.textContent = c.response_a || "";
+        const vs = document.createElement("div");
+        vs.className = "echo-drawer-contr-vs";
+        vs.textContent = "↔";
+        const sideB = document.createElement("div");
+        sideB.className = "echo-drawer-contr-side";
+        sideB.textContent = c.response_b || "";
+        clash.appendChild(sideA);
+        clash.appendChild(vs);
+        clash.appendChild(sideB);
+        card.appendChild(clash);
 
         if (c.explanation) {
           const expl = document.createElement("div");

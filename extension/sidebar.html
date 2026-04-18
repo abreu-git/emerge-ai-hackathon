@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Echo</title>
+    <link rel="preload" as="font" type="font/woff2" href="fonts/Inter-400.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="fonts/Inter-500.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="fonts/IBMPlexMono-600.woff2" crossorigin />
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
@@ -24,13 +27,14 @@
         <div class="echo-prompt-text" id="echo-prompt-box"></div>
       </section>
 
-      <!-- Empty state -->
+      <!-- Empty state (hero) -->
       <section class="echo-empty" id="echo-empty">
-        <div class="echo-empty-title">Type a prompt in ChatGPT</div>
-        <div class="echo-empty-text">
+        <div class="echo-empty-mark" aria-hidden="true"></div>
+        <h1 class="echo-empty-title">Type a prompt in ChatGPT</h1>
+        <p class="echo-empty-text">
           Echo captures ChatGPT's live response and runs 3 adversarial
           variants against GPT-4o to detect sycophancy and score consistency.
-        </div>
+        </p>
       </section>
 
       <!-- Response cards scroll area -->
@@ -51,7 +55,9 @@
         <div class="echo-footer-bar-track" aria-hidden="true">
           <div class="echo-footer-bar-fill" id="echo-footer-bar-fill"></div>
         </div>
-        <div class="echo-footer-hint">Tap for full report</div>
+        <div class="echo-footer-hint">
+          Tap for full report <span class="arrow" aria-hidden="true">→</span>
+        </div>
       </button>
 
       <!-- Report drawer (slides up when footer is tapped) -->
@@ -62,9 +68,12 @@
         aria-hidden="true"
       >
         <header class="echo-drawer-header">
-          <div>
-            <div class="echo-drawer-label">Consistency report</div>
-            <div class="echo-drawer-score" id="echo-drawer-score">—</div>
+          <div class="echo-drawer-title-block">
+            <div class="echo-drawer-label">Consistency</div>
+            <div class="echo-drawer-score-row">
+              <div class="echo-drawer-score" id="echo-drawer-score">—</div>
+              <div class="echo-drawer-rec" id="echo-drawer-recommendation" hidden></div>
+            </div>
           </div>
           <button
             class="echo-drawer-close"
@@ -80,24 +89,23 @@
             <div class="echo-drawer-verdict" id="echo-drawer-verdict"></div>
           </div>
           <div class="echo-drawer-section">
-            <div class="echo-drawer-section-label">Recommendation</div>
-            <div class="echo-drawer-recommendation" id="echo-drawer-recommendation"></div>
-          </div>
-          <div class="echo-drawer-section">
             <div class="echo-drawer-section-label">Stances</div>
             <div class="echo-drawer-stances" id="echo-drawer-stances"></div>
           </div>
           <div class="echo-drawer-section">
-            <div class="echo-drawer-section-label">Contradictions</div>
+            <div class="echo-drawer-section-label">
+              Contradictions
+              <span class="echo-drawer-section-count" id="echo-drawer-contr-count"></span>
+            </div>
             <div class="echo-drawer-contradictions" id="echo-drawer-contradictions"></div>
           </div>
         </div>
       </aside>
 
-      <!-- Minimal status line (replaces old footer) -->
+      <!-- Status line (bottom) -->
       <div class="echo-status-line">
         <span id="echo-status" class="echo-status">ready</span>
-        <span class="echo-powered">Claude + GPT-4o</span>
+        <span class="echo-powered">claude + gpt-4o</span>
       </div>
     </div>
 
