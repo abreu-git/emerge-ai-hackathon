@@ -1,0 +1,21 @@
+{
+  "name": "echo-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Echo — Vercel serverless API for adversarial variant generation, parallel execution, and consistency analysis.",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vercel/node": "^3.2.29",
+    "typescript": "^5.7.0",
+    "vercel": "^39.0.0"
+  }
+}
