@@ -1,0 +1,282 @@
+/* Echo sidebar — injected on chatgpt.com */
+
+#echo-sidebar-root,
+#echo-toggle-btn {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  box-sizing: border-box;
+  color: #F5F3FF;
+}
+
+#echo-sidebar-root *,
+#echo-toggle-btn * {
+  box-sizing: border-box;
+  font-family: inherit;
+  color: inherit;
+}
+
+/* ---------- toggle button ---------- */
+#echo-toggle-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, #1E1B3A 0%, #2D1B4E 100%);
+  border: 1px solid rgba(217, 70, 239, 0.35);
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(124, 58, 237, 0.35), 0 0 0 1px rgba(255,255,255,0.05) inset;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #F5F3FF;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+#echo-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 40px rgba(217, 70, 239, 0.45);
+}
+.echo-toggle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #F0ABFC, #D946EF 60%, #7C3AED);
+  box-shadow: 0 0 12px rgba(217, 70, 239, 0.9);
+  animation: echo-pulse 2.4s ease-in-out infinite;
+}
+@keyframes echo-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.75; }
+}
+
+/* ---------- sidebar shell ---------- */
+#echo-sidebar-root {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  height: calc(100vh - 32px);
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #13102A 0%, #0B0820 100%);
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  border-radius: 20px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  overflow: hidden;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+#echo-sidebar-root.echo-hidden {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+#echo-toggle-btn.echo-hidden {
+  transform: translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- header ---------- */
+.echo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.echo-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.echo-logo-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #F0ABFC, #D946EF 60%, #7C3AED);
+  box-shadow: 0 0 14px rgba(217, 70, 239, 0.9);
+}
+.echo-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.echo-subtitle {
+  font-size: 11px;
+  color: rgba(245, 243, 255, 0.55);
+  margin-top: 2px;
+}
+.echo-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(245,243,255,0.65);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+.echo-close:hover {
+  background: rgba(217,70,239,0.15);
+  color: #F5F3FF;
+}
+
+/* ---------- empty state ---------- */
+.echo-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+}
+.echo-empty-ring {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #D946EF, #7C3AED, #D946EF);
+  padding: 3px;
+  margin-bottom: 20px;
+  animation: echo-spin 8s linear infinite;
+}
+.echo-empty-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #0B0820;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: rgba(245,243,255,0.4);
+  animation: echo-spin 8s linear infinite reverse;
+}
+@keyframes echo-spin {
+  to { transform: rotate(360deg); }
+}
+.echo-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.echo-empty-text {
+  font-size: 13px;
+  color: rgba(245,243,255,0.55);
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+/* ---------- body / score ---------- */
+.echo-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.echo-score-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.echo-score-ring {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+.echo-score-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.echo-score-arc {
+  transition: stroke-dashoffset 800ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.echo-score-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(245,243,255,0.55);
+  margin-bottom: 4px;
+}
+.echo-score-verdict {
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(245,243,255,0.85);
+}
+
+/* ---------- tabs ---------- */
+.echo-tabs {
+  display: flex;
+  padding: 0 20px;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.echo-tab {
+  background: transparent;
+  border: none;
+  padding: 12px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(245,243,255,0.5);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.echo-tab:hover { color: rgba(245,243,255,0.8); }
+.echo-tab.is-active {
+  color: #F5F3FF;
+  border-bottom-color: #D946EF;
+}
+
+/* ---------- panels ---------- */
+.echo-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+.echo-resp-list, .echo-contr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------- footer ---------- */
+.echo-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+  color: rgba(245,243,255,0.45);
+}
+.echo-status::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  margin-right: 6px;
+  vertical-align: middle;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+}
