@@ -104,30 +104,27 @@
     const style = document.createElement("style");
     style.id = ECHO_STYLE_ID;
     style.textContent = `
-      #${ECHO_BTN_ID} { position: relative; }
+      #${ECHO_BTN_ID} { position: relative; isolation: isolate; }
       #${ECHO_BTN_ID}.is-on::before,
       #${ECHO_BTN_ID}.is-on::after {
         content: "";
         position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 26px;
-        height: 26px;
-        margin-left: -13px;
-        margin-top: -13px;
+        inset: 0;
         border-radius: 50%;
         border: 1.5px solid #A855F7;
         pointer-events: none;
         opacity: 0;
+        transform-origin: center;
         animation: echo-composer-pulse 1.8s ease-out infinite;
+        z-index: -1;
       }
       #${ECHO_BTN_ID}.is-on::after {
         animation-delay: 0.9s;
       }
       @keyframes echo-composer-pulse {
-        0%   { transform: scale(0.7); opacity: 0.7; }
+        0%   { transform: scale(0.55); opacity: 0.6; }
         80%  { opacity: 0; }
-        100% { transform: scale(2.1); opacity: 0; }
+        100% { transform: scale(1.55); opacity: 0; }
       }
     `;
     document.head.appendChild(style);
