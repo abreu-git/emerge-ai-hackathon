@@ -361,6 +361,7 @@
     // Show captured prompt immediately.
     empty.hidden = true;
     promptCard.hidden = false;
+    cardsEl.hidden = false;
     promptBox.textContent = prompt;
 
     // Seed the ORIGINAL card now (status: loading).

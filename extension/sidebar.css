@@ -1,23 +1,23 @@
-/* Echo — Chrome side panel styles (B&W with minimal purple accent) */
+/* Echo — Chrome side panel styles (light: white/black with purple accent) */
 
 /* Fix: [hidden] attribute must win over display:flex/grid etc. */
 [hidden] { display: none !important; }
 
 :root {
-  color-scheme: dark;
-  --echo-bg-0: #0A0A0A;
-  --echo-bg-1: #141414;
-  --echo-bg-2: #1F1F1F;
-  --echo-border: rgba(255, 255, 255, 0.08);
-  --echo-border-strong: rgba(255, 255, 255, 0.14);
-  --echo-text: #F5F5F5;
-  --echo-text-dim: #A0A0A0;
-  --echo-text-faint: #6B6B6B;
+  color-scheme: light;
+  --echo-bg-0: #FFFFFF;
+  --echo-bg-1: #F7F7F8;
+  --echo-bg-2: #EFEFF2;
+  --echo-border: rgba(0, 0, 0, 0.08);
+  --echo-border-strong: rgba(0, 0, 0, 0.16);
+  --echo-text: #0A0A0A;
+  --echo-text-dim: #525252;
+  --echo-text-faint: #8A8A8A;
   --echo-accent: #A855F7;
-  --echo-accent-dim: rgba(168, 85, 247, 0.28);
-  --echo-green: #10B981;
-  --echo-amber: #F59E0B;
-  --echo-red: #EF4444;
+  --echo-accent-dim: rgba(168, 85, 247, 0.2);
+  --echo-green: #059669;
+  --echo-amber: #D97706;
+  --echo-red: #DC2626;
 }
 
 * {
@@ -149,8 +149,9 @@ body {
 }
 .echo-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(168, 85, 247, 0.28);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35),
+  border-color: rgba(168, 85, 247, 0.35);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.1),
+              0 2px 8px rgba(0, 0, 0, 0.04),
               0 0 0 1px rgba(168, 85, 247, 0.06) inset;
 }
 .echo-card.is-expanded {
@@ -419,7 +420,7 @@ body {
   opacity: 0;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.08);
 }
 .echo-drawer.is-open {
   transform: translateY(0);
@@ -456,7 +457,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--echo-bg-1);
   border: 1px solid var(--echo-border);
   color: var(--echo-text-dim);
   font-size: 20px;

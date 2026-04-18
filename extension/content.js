@@ -104,25 +104,39 @@
     const style = document.createElement("style");
     style.id = ECHO_STYLE_ID;
     style.textContent = `
-      #${ECHO_BTN_ID} { position: relative; isolation: isolate; }
-      #${ECHO_BTN_ID}.is-on::before,
-      #${ECHO_BTN_ID}.is-on::after {
-        content: "";
+      #${ECHO_BTN_ID} .echo-logo-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        line-height: 0;
+      }
+      #${ECHO_BTN_ID} .echo-logo-wrap svg { display: block; }
+      #${ECHO_BTN_ID}.is-on .echo-pulse-ring {
         position: absolute;
-        inset: 0;
+        left: 50%;
+        top: 50%;
+        width: 20px;
+        height: 20px;
+        margin-left: -10px;
+        margin-top: -10px;
         border-radius: 50%;
         border: 1.5px solid #A855F7;
         pointer-events: none;
         opacity: 0;
         transform-origin: center;
         animation: echo-composer-pulse 1.8s ease-out infinite;
-        z-index: -1;
+        z-index: 0;
       }
-      #${ECHO_BTN_ID}.is-on::after {
+      #${ECHO_BTN_ID}.is-on .echo-pulse-ring.is-second {
         animation-delay: 0.9s;
       }
+      /* Hide rings when OFF */
+      #${ECHO_BTN_ID}:not(.is-on) .echo-pulse-ring { display: none; }
       @keyframes echo-composer-pulse {
-        0%   { transform: scale(0.55); opacity: 0.6; }
+        0%   { transform: scale(0.55); opacity: 0.55; }
         80%  { opacity: 0; }
         100% { transform: scale(1.55); opacity: 0; }
       }
@@ -153,10 +167,14 @@
     btn.setAttribute("aria-label", "Analyze with Echo");
     btn.title = "Analyze with Echo — run 3 adversarial variants in parallel";
     btn.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <circle class="echo-btn-ring" cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
-        <circle class="echo-btn-dot" cx="10" cy="10" r="4" fill="#A855F7"/>
-      </svg>
+      <span class="echo-logo-wrap">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+          <circle class="echo-btn-ring" cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
+          <circle class="echo-btn-dot" cx="10" cy="10" r="4" fill="#A855F7"/>
+        </svg>
+        <span class="echo-pulse-ring" aria-hidden="true"></span>
+        <span class="echo-pulse-ring is-second" aria-hidden="true"></span>
+      </span>
     `;
     btn.addEventListener("click", onEchoButtonClick);
 
