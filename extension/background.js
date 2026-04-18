@@ -7,11 +7,47 @@ const LOG = (...args) => console.log("[Echo/bg]", ...args);
 const LAST_PROMPT_KEY = "echo.lastPrompt";
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Disable the auto-open-on-action-click so WE handle the click and can
+  // also nudge the content script to re-inject the composer button.
   chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .then(() => LOG("sidePanel behavior set (openPanelOnActionClick)"))
+    .setPanelBehavior({ openPanelOnActionClick: false })
+    .then(() => LOG("sidePanel behavior set (manual click handling)"))
     .catch((e) => LOG("sidePanel behavior failed:", e.message));
   LOG("installed");
+});
+
+// Toolbar icon click — open panel AND re-activate the content script's
+// composer button injection + observers in case ChatGPT blocked them.
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab || !tab.id) return;
+  LOG(`toolbar icon clicked, tab=${tab.id}, win=${tab.windowId}, url=${tab.url}`);
+
+  // Open side panel for this tab. Gesture context is preserved because we
+  // call these synchronously inside the onClicked handler.
+  try {
+    chrome.sidePanel.setOptions({
+      tabId: tab.id,
+      path: "sidebar.html",
+      enabled: true,
+    });
+  } catch (e) {
+    LOG("setOptions threw:", e.message);
+  }
+  chrome.sidePanel
+    .open({ tabId: tab.id, windowId: tab.windowId })
+    .then(() => LOG("panel opened from toolbar"))
+    .catch((e) => LOG("panel open failed:", e.message));
+
+  // Wake up / re-inject the content script's button if we're on ChatGPT.
+  if (tab.url && /https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url)) {
+    chrome.tabs.sendMessage(tab.id, { type: "ECHO_ACTIVATE" }, () => {
+      const err = chrome.runtime.lastError;
+      if (err) LOG("activate msg not delivered:", err.message);
+      else LOG("ECHO_ACTIVATE acknowledged by content script");
+    });
+  } else {
+    LOG("non-ChatGPT tab — skipped ECHO_ACTIVATE");
+  }
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

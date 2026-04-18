@@ -332,5 +332,24 @@
     characterData: true,
   });
 
+  // ---- Activation ping from background (toolbar icon click) ----
+  // The background asks us to re-verify our presence when the user opens
+  // the side panel via the toolbar icon. We re-inject the composer button
+  // if ChatGPT's DOM rebuilds have stripped it.
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "ECHO_ACTIVATE") {
+      LOG("ECHO_ACTIVATE received — re-ensuring button + observers");
+      try {
+        ensureEchoButtonStyles();
+        injectEchoButton();
+        sendResponse({ ok: true, injected: !!document.getElementById(ECHO_BTN_ID) });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+      return true;
+    }
+  });
+
   LOG("content script ready on", location.hostname);
 })();
