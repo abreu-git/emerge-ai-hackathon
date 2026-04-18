@@ -81,14 +81,74 @@
     }
   }
 
-  // MutationObserver — ChatGPT is an SPA; the composer gets remounted when
-  // navigating between chats. Re-find on DOM changes.
+  // ---- Echo button injection into ChatGPT's composer action row ----
+  const ECHO_BTN_ID = "echo-composer-btn";
+
+  function injectEchoButton() {
+    if (document.getElementById(ECHO_BTN_ID)) return; // already injected
+
+    // Anchor: the dictation button. Its container is the action row we want.
+    const anchor =
+      document.querySelector('button[aria-label*="dictation" i]') ||
+      document.querySelector('button[data-testid="composer-speech-button"]');
+    if (!anchor) return;
+
+    // Climb to the button row. ChatGPT wraps each button in a <span>, and
+    // all of them sit in a flex container with "ms-auto" or similar.
+    const row =
+      anchor.closest(".ms-auto") ||
+      (anchor.parentElement && anchor.parentElement.parentElement);
+    if (!row) return;
+
+    const btn = document.createElement("button");
+    btn.id = ECHO_BTN_ID;
+    btn.type = "button";
+    btn.className = "composer-btn h-9 min-h-9 w-9 min-w-9";
+    btn.setAttribute("aria-label", "Analyze with Echo");
+    btn.title = "Analyze with Echo — run 3 adversarial variants in parallel";
+    btn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="10" cy="10" r="7.5" fill="none" stroke="#A855F7" stroke-opacity="0.45" stroke-width="1"/>
+        <circle cx="10" cy="10" r="4" fill="#A855F7"/>
+      </svg>
+    `;
+    btn.addEventListener("click", onEchoButtonClick);
+
+    // Insert at start of row so it sits left of dictation + voice.
+    row.insertBefore(btn, row.firstChild);
+    LOG("injected Echo button into composer");
+  }
+
+  function onEchoButtonClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const composer = findComposer();
+    const prompt = captureFromElement(composer);
+    if (!prompt) {
+      LOG("Echo button clicked but composer is empty");
+      return;
+    }
+    LOG(`Echo button clicked, capturing: "${prompt.slice(0, 60)}..."`);
+    // Ask background to open the side panel (requires user-gesture routing).
+    try {
+      chrome.runtime.sendMessage({
+        type: "ECHO_OPEN_PANEL_WITH_PROMPT",
+        prompt,
+      });
+    } catch (err) {
+      LOG("could not message background:", err.message);
+    }
+  }
+
+  // MutationObserver — ChatGPT is an SPA; the composer and its action row
+  // get remounted when navigating between chats. Re-find and re-inject.
   const obs = new MutationObserver(() => {
     const composer = findComposer();
     if (composer && composer !== currentComposer) {
       currentComposer = composer;
       LOG("composer mounted/remounted");
     }
+    injectEchoButton();
   });
   obs.observe(document.documentElement, {
     childList: true,
@@ -99,6 +159,7 @@
   currentComposer = findComposer();
   if (currentComposer) LOG("composer found on init");
   else LOG("composer not found on init; MutationObserver will catch it");
+  injectEchoButton();
 
   // ---- Submit detection — Enter key ----
   // Capture phase so we read the text BEFORE ChatGPT's handler clears it.

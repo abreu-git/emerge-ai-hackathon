@@ -57,5 +57,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the channel open for async response
   }
 
+  if (msg.type === "ECHO_OPEN_PANEL_WITH_PROMPT") {
+    const prompt = String(msg.prompt || "");
+    const tabId = sender.tab?.id;
+    LOG(`manual trigger from composer button (${prompt.length} chars), tab`, tabId);
+
+    const payload = { prompt, tabId: tabId ?? null, capturedAt: Date.now() };
+    chrome.storage.local.set({ [LAST_PROMPT_KEY]: payload });
+
+    // Open the side panel for this tab (must happen within the user-gesture
+    // window — the click that triggered this message).
+    if (tabId != null) {
+      chrome.sidePanel
+        .open({ tabId })
+        .then(() => LOG("sidePanel opened"))
+        .catch((e) => LOG("sidePanel.open failed:", e.message));
+    }
+
+    // Broadcast to panel (if already open it picks up immediately; if not,
+    // the panel reads pending prompt via ECHO_GET_LAST_PROMPT on load).
+    chrome.runtime.sendMessage(
+      { type: "ECHO_PROMPT_FOR_PANEL", ...payload },
+      () => {
+        const err = chrome.runtime.lastError;
+        if (err) LOG("panel not listening yet (will pick up on open):", err.message);
+      }
+    );
+
+    sendResponse({ ok: true });
+    return;
+  }
+
   sendResponse({ ok: false, reason: "unknown type" });
 });
