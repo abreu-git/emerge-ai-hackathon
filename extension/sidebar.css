@@ -38,15 +38,14 @@ body {
   overflow: hidden;
 }
 
-/* Purple rounded frame around the whole panel — Sider-style visible border. */
+/* Thick purple frame that hugs the panel's actual edges (no corner gaps). */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 9999;
-  border: 1.5px solid rgba(168, 85, 247, 0.55);
-  border-radius: 14px;
+  box-shadow: inset 0 0 0 3px #A855F7;
 }
 
 
