@@ -18,12 +18,25 @@
         </div>
       </header>
 
+      <section class="echo-composer">
+        <textarea
+          id="echo-input"
+          class="echo-input"
+          rows="3"
+          placeholder="Ask anything. Echo will run it 4 ways against GPT-4o and score consistency."
+        ></textarea>
+        <div class="echo-composer-actions">
+          <span class="echo-composer-hint">⌘ + Enter to analyze</span>
+          <button id="echo-submit" class="echo-submit">Analyze</button>
+        </div>
+      </section>
+
       <section class="echo-empty" id="echo-empty">
         <div class="echo-empty-ring"><div class="echo-empty-inner">—</div></div>
-        <div class="echo-empty-title">Ask ChatGPT anything</div>
+        <div class="echo-empty-title">Type a prompt above</div>
         <div class="echo-empty-text">
-          Echo will silently generate 3 adversarial variants and score
-          consistency.
+          Echo runs 3 adversarial variants in parallel against GPT-4o (the
+          model that powers ChatGPT) and scores consistency with Claude.
         </div>
       </section>
 

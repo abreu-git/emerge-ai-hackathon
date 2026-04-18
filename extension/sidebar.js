@@ -7,6 +7,8 @@
   const LOG = (...args) => console.log("[Echo/panel]", ...args);
   LOG("loading, API_BASE =", API_BASE);
 
+  const input = document.getElementById("echo-input");
+  const submit = document.getElementById("echo-submit");
   const empty = document.getElementById("echo-empty");
   const body = document.getElementById("echo-body");
   const promptBox = document.getElementById("echo-prompt-box");
@@ -242,11 +244,31 @@
     }
   }
 
-  // Listen for prompts broadcast from the background.
+  // Composer — primary input path.
+  function submitFromInput() {
+    const prompt = input.value.trim();
+    if (!prompt) return;
+    submit.disabled = true;
+    orchestrate(prompt).finally(() => {
+      submit.disabled = false;
+    });
+  }
+  submit.addEventListener("click", submitFromInput);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submitFromInput();
+    }
+  });
+
+  // Listen for prompts broadcast from the background (secondary path: user
+  // typed directly in chatgpt.com). Mirror into the composer so the user sees
+  // what's being analyzed.
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "ECHO_PROMPT_FOR_PANEL" && typeof msg.prompt === "string") {
       LOG("received prompt from bg:", msg.prompt.slice(0, 80));
+      input.value = msg.prompt;
       orchestrate(msg.prompt, msg.capturedAt);
     }
   });
