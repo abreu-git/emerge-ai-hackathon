@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Echo</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <div class="echo-app">
+      <header class="echo-header">
+        <div class="echo-brand">
+          <div class="echo-logo-dot" aria-hidden="true"></div>
+          <div>
+            <div class="echo-title">Echo</div>
+            <div class="echo-subtitle">See the same AI, from every angle.</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="echo-empty" id="echo-empty">
+        <div class="echo-empty-ring"><div class="echo-empty-inner">—</div></div>
+        <div class="echo-empty-title">Ask ChatGPT anything</div>
+        <div class="echo-empty-text">
+          Echo will silently generate 3 adversarial variants and score
+          consistency.
+        </div>
+      </section>
+
+      <section class="echo-body" id="echo-body" hidden>
+        <div class="echo-score-card">
+          <div class="echo-score-ring">
+            <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+              <circle cx="60" cy="60" r="52" stroke="#1a1333" stroke-width="10" fill="none" />
+              <circle
+                id="echo-score-arc"
+                class="echo-score-arc"
+                cx="60"
+                cy="60"
+                r="52"
+                stroke="url(#echo-grad)"
+                stroke-width="10"
+                fill="none"
+                stroke-linecap="round"
+                stroke-dasharray="326"
+                stroke-dashoffset="326"
+                transform="rotate(-90 60 60)"
+              />
+              <defs>
+                <linearGradient id="echo-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#D946EF" />
+                  <stop offset="100%" stop-color="#7C3AED" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div id="echo-score-num" class="echo-score-num">—</div>
+          </div>
+          <div class="echo-score-meta">
+            <div class="echo-score-label">Consistency</div>
+            <div id="echo-score-verdict" class="echo-score-verdict">
+              Waiting for your first prompt…
+            </div>
+          </div>
+        </div>
+
+        <nav class="echo-tabs" role="tablist">
+          <button class="echo-tab is-active" data-tab="prompt" role="tab">Prompt</button>
+          <button class="echo-tab" data-tab="responses" role="tab">Responses</button>
+          <button class="echo-tab" data-tab="contradictions" role="tab">Contradictions</button>
+        </nav>
+
+        <div class="echo-panel" data-panel="prompt">
+          <div id="echo-prompt-box" class="echo-prompt-box"></div>
+        </div>
+
+        <div class="echo-panel" data-panel="responses" hidden>
+          <div id="echo-resp-list" class="echo-resp-list"></div>
+        </div>
+        <div class="echo-panel" data-panel="contradictions" hidden>
+          <div id="echo-contr-list" class="echo-contr-list"></div>
+        </div>
+      </section>
+
+      <footer class="echo-footer">
+        <span id="echo-status" class="echo-status">ready</span>
+        <span class="echo-powered">powered by Claude + GPT-4o</span>
+      </footer>
+    </div>
+
+    <script src="sidebar.js"></script>
+  </body>
+</html>

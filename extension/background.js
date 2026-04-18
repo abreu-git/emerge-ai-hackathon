@@ -1,24 +1,26 @@
-// Echo — background service worker
-// MV3 requires a service worker even if empty. We'll proxy API calls here later
-// so the content script never handles API keys.
+// Echo — background service worker (MV3)
+// Wires the Chrome side panel to the extension action + bridges content → side panel.
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Clicking the toolbar icon opens the native side panel.
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((e) => console.warn("[Echo] sidePanel behavior:", e));
   console.log("[Echo] installed");
 });
 
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id || !tab.url) return;
-  const onChatGPT = /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url);
-  if (!onChatGPT) {
-    // Open ChatGPT if clicked elsewhere, so Echo has somewhere to live.
-    await chrome.tabs.create({ url: "https://chatgpt.com/" });
-    return;
-  }
-  try {
-    await chrome.tabs.sendMessage(tab.id, { type: "ECHO_TOGGLE_SIDEBAR" });
-  } catch (_e) {
-    // Content script not injected yet (page loaded before the extension).
-    // Reload the tab so the content script attaches.
-    await chrome.tabs.reload(tab.id);
+// Relay prompt-capture events from content scripts to any open side panel.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg !== "object") return;
+  if (msg.type === "ECHO_PROMPT_CAPTURED") {
+    // Forward to all contexts (the side panel subscribes to runtime messages).
+    chrome.runtime.sendMessage({
+      type: "ECHO_PROMPT_FOR_PANEL",
+      prompt: msg.prompt,
+      tabId: sender.tab?.id ?? null,
+      url: sender.tab?.url ?? null,
+    }).catch(() => {
+      // No side panel listener — harmless.
+    });
   }
 });
