@@ -1,12 +1,11 @@
-// Echo — content script (thin)
-// Watches the ChatGPT composer and notifies the side panel on submit.
-// All UI lives in sidebar.html (native Chrome side panel).
+// Echo — content script
+// Captures prompts from ChatGPT's native composer and forwards to the side
+// panel via chrome.runtime messaging. No DOM injection (side panel holds UI).
 
 (function () {
   const LOG = (...args) => console.log("[Echo/content]", ...args);
 
-  // Defensive cleanup: remove any stale DOM left over from the pre-side-panel
-  // version of the extension. Safe to call on every load.
+  // Defensive cleanup: remove any stale DOM left over from an older version.
   for (const id of ["echo-sidebar-root", "echo-toggle-btn"]) {
     const el = document.getElementById(id);
     if (el) {
@@ -21,43 +20,94 @@
   }
   window.__ECHO_INJECTED__ = true;
 
+  // Correct selectors — ChatGPT's composer is a ProseMirror contenteditable
+  // at #prompt-textarea, wrapped by a div with data-composer-surface="true".
+  // There is NO <form> around it, which is why the previous selector failed.
   function findComposer() {
-    const el = document.querySelector(
-      'form textarea, form [contenteditable="true"]'
+    return (
+      document.querySelector("#prompt-textarea") ||
+      document.querySelector(
+        '[data-composer-surface="true"] [contenteditable="true"]'
+      ) ||
+      document.querySelector('textarea[name="prompt-textarea"]')
     );
-    if (!el) LOG("composer not found");
-    return el;
+  }
+
+  function findSendButton() {
+    return (
+      document.querySelector("#composer-submit-button") ||
+      document.querySelector('button[data-testid="send-button"]') ||
+      document.querySelector('button[aria-label*="Send" i]') ||
+      document.querySelector('button[aria-label*="message" i][type="button"]')
+    );
   }
 
   function captureFromElement(el) {
     if (!el) return "";
-    return (el.innerText || el.value || "").trim();
+    // ProseMirror uses contenteditable; use innerText for the rendered text,
+    // falling back to .value for the hidden textarea case.
+    const text = (el.innerText || el.value || "").trim();
+    // Strip ChatGPT's placeholder text that sometimes gets picked up.
+    if (text === "Ask anything" || text === "Chat with ChatGPT") return "";
+    return text;
   }
 
+  let currentComposer = null;
+  let lastSent = { prompt: "", at: 0 };
+
   function send(prompt, via) {
+    const now = Date.now();
+    // Deduplicate: ignore if we just sent the same prompt within the last 2s
+    // (catches Enter + send-button double fires).
+    if (prompt === lastSent.prompt && now - lastSent.at < 2000) {
+      LOG(`dedup: already sent "${prompt.slice(0, 40)}..." ${now - lastSent.at}ms ago`);
+      return;
+    }
+    lastSent = { prompt, at: now };
     LOG(`captured via ${via} (${prompt.length} chars):`, prompt.slice(0, 80));
     try {
-      chrome.runtime.sendMessage({ type: "ECHO_PROMPT_CAPTURED", prompt }, (ack) => {
-        if (chrome.runtime.lastError) {
-          LOG("sendMessage error:", chrome.runtime.lastError.message);
-        } else {
-          LOG("background ack:", ack);
+      chrome.runtime.sendMessage(
+        { type: "ECHO_PROMPT_CAPTURED", prompt },
+        (ack) => {
+          if (chrome.runtime.lastError) {
+            LOG("sendMessage error:", chrome.runtime.lastError.message);
+          } else {
+            LOG("background ack:", ack);
+          }
         }
-      });
+      );
     } catch (e) {
       LOG("sendMessage threw:", e.message);
     }
   }
 
-  // Capture on Enter (without Shift) — matches ChatGPT's submit behavior.
+  // MutationObserver — ChatGPT is an SPA; the composer gets remounted when
+  // navigating between chats. Re-find on DOM changes.
+  const obs = new MutationObserver(() => {
+    const composer = findComposer();
+    if (composer && composer !== currentComposer) {
+      currentComposer = composer;
+      LOG("composer mounted/remounted");
+    }
+  });
+  obs.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  // Initial find
+  currentComposer = findComposer();
+  if (currentComposer) LOG("composer found on init");
+  else LOG("composer not found on init; MutationObserver will catch it");
+
+  // ---- Submit detection — Enter key ----
+  // Capture phase so we read the text BEFORE ChatGPT's handler clears it.
   document.addEventListener(
     "keydown",
     (e) => {
       if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
       const composer = findComposer();
       if (!composer) return;
-      // Check if event target is inside the composer (for contenteditable)
-      // or IS the composer (for textarea).
       const targetIsComposer =
         e.target === composer ||
         (composer.contains && composer.contains(e.target));
@@ -69,16 +119,17 @@
     true
   );
 
-  // Also capture when the send button is clicked.
+  // ---- Submit detection — Send button click ----
   document.addEventListener(
     "click",
     (e) => {
       const target = e.target;
       if (!(target instanceof Element)) return;
       const btn = target.closest(
-        'button[data-testid="send-button"], button[aria-label*="end" i], form button[type="submit"]'
+        '#composer-submit-button, button[data-testid="send-button"], button[aria-label*="Send" i]'
       );
       if (!btn) return;
+      // Read the composer text BEFORE ChatGPT clears it.
       const composer = findComposer();
       const prompt = captureFromElement(composer);
       if (!prompt) return;

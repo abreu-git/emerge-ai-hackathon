@@ -18,75 +18,94 @@
         </div>
       </header>
 
-      <section class="echo-composer">
-        <textarea
-          id="echo-input"
-          class="echo-input"
-          rows="3"
-          placeholder="Ask anything. Echo will run it 4 ways against GPT-4o and score consistency."
-        ></textarea>
-        <div class="echo-composer-actions">
-          <span class="echo-composer-hint">⌘ + Enter to analyze</span>
-          <button id="echo-submit" class="echo-submit">Analyze</button>
-        </div>
+      <nav class="echo-nav" id="echo-nav" hidden>
+        <button
+          class="echo-nav-arrow"
+          id="echo-prev"
+          aria-label="Previous prompt"
+        >
+          ‹
+        </button>
+        <span class="echo-nav-count" id="echo-nav-count">1 / 1</span>
+        <button
+          class="echo-nav-arrow"
+          id="echo-next"
+          aria-label="Next prompt"
+        >
+          ›
+        </button>
+      </nav>
+
+      <section
+        class="echo-prompt-card"
+        id="echo-prompt-card"
+        hidden
+      >
+        <div class="echo-prompt-label">Captured prompt</div>
+        <div class="echo-prompt-text" id="echo-prompt-box"></div>
       </section>
 
       <section class="echo-empty" id="echo-empty">
-        <div class="echo-empty-ring"><div class="echo-empty-inner">—</div></div>
-        <div class="echo-empty-title">Type a prompt above</div>
+        <div class="echo-empty-title">Type a prompt in ChatGPT</div>
         <div class="echo-empty-text">
-          Echo runs 3 adversarial variants in parallel against GPT-4o (the
-          model that powers ChatGPT) and scores consistency with Claude.
+          Echo auto-captures from the ChatGPT composer and runs it 4 ways
+          against GPT-4o — the same model that powers ChatGPT — to score
+          consistency with Claude.
         </div>
       </section>
 
       <section class="echo-body" id="echo-body" hidden>
         <div class="echo-score-card">
           <div class="echo-score-ring">
-            <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
-              <circle cx="60" cy="60" r="52" stroke="#1a1333" stroke-width="10" fill="none" />
+            <svg
+              viewBox="0 0 120 120"
+              width="120"
+              height="120"
+              aria-hidden="true"
+            >
+              <circle
+                cx="60"
+                cy="60"
+                r="52"
+                stroke="#1F1F1F"
+                stroke-width="8"
+                fill="none"
+              />
               <circle
                 id="echo-score-arc"
                 class="echo-score-arc"
                 cx="60"
                 cy="60"
                 r="52"
-                stroke="url(#echo-grad)"
-                stroke-width="10"
+                stroke="currentColor"
+                stroke-width="8"
                 fill="none"
                 stroke-linecap="round"
                 stroke-dasharray="326"
                 stroke-dashoffset="326"
                 transform="rotate(-90 60 60)"
               />
-              <defs>
-                <linearGradient id="echo-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#D946EF" />
-                  <stop offset="100%" stop-color="#7C3AED" />
-                </linearGradient>
-              </defs>
             </svg>
             <div id="echo-score-num" class="echo-score-num">—</div>
           </div>
           <div class="echo-score-meta">
             <div class="echo-score-label">Consistency</div>
             <div id="echo-score-verdict" class="echo-score-verdict">
-              Waiting for your first prompt…
+              Analyzing…
             </div>
           </div>
         </div>
 
         <nav class="echo-tabs" role="tablist">
-          <button class="echo-tab is-active" data-tab="prompt" role="tab">Prompt</button>
-          <button class="echo-tab" data-tab="responses" role="tab">Responses</button>
-          <button class="echo-tab" data-tab="contradictions" role="tab">Contradictions</button>
+          <button class="echo-tab is-active" data-tab="responses" role="tab">
+            Responses
+          </button>
+          <button class="echo-tab" data-tab="contradictions" role="tab">
+            Contradictions
+          </button>
         </nav>
 
-        <div class="echo-panel" data-panel="prompt">
-          <div id="echo-prompt-box" class="echo-prompt-box"></div>
-        </div>
-
-        <div class="echo-panel" data-panel="responses" hidden>
+        <div class="echo-panel" data-panel="responses">
           <div id="echo-resp-list" class="echo-resp-list"></div>
         </div>
         <div class="echo-panel" data-panel="contradictions" hidden>
@@ -96,7 +115,7 @@
 
       <footer class="echo-footer">
         <span id="echo-status" class="echo-status">ready</span>
-        <span class="echo-powered">powered by Claude + GPT-4o</span>
+        <span class="echo-powered">Claude + GPT-4o</span>
       </footer>
     </div>
 
